@@ -35,13 +35,28 @@ function getDecisionColor(decision: string): string {
   }
 }
 
-function formatFinding(finding: Finding): string[] {
+function formatRebuttalStatus(finding: Finding): string {
+  if (!finding.rebuttalStatus) return '';
+  
+  const { statusEmoji, statusLabel } = finding.rebuttalStatus;
+  return colorize(` ${statusEmoji} ${statusLabel}`, COLORS.dim);
+}
+
+function formatFinding(finding: Finding, index: number): string[] {
   const lines: string[] = [];
   const severity = colorize(finding.severity.toUpperCase().padEnd(10), getSeverityColor(finding.severity), COLORS.bold);
   const location = finding.file ? colorize(`${finding.file}:${finding.line}`, COLORS.cyan) : '—';
   const impact = finding.costImpact || '—';
+  const trustedLabel = finding.isTrusted ? colorize(' (Trusted)', COLORS.dim) : '';
+  const confidence = finding.confidence ? ` [${Math.round(finding.confidence * 100)}%]` : '';
+  const rebuttalLabel = formatRebuttalStatus(finding);
   
-  lines.push(`${severity} ${finding.title.padEnd(30)} ${location.padEnd(30)} ${impact}`);
+  lines.push(`${severity} ${finding.title}${trustedLabel}${confidence}`);
+  lines.push(colorize(`           ${location} — Est. impact: ${impact}`, COLORS.dim));
+  
+  if (rebuttalLabel) {
+    lines.push(rebuttalLabel);
+  }
   
   if (finding.message) {
     lines.push(colorize(`           Why: ${finding.message}`, COLORS.dim));
@@ -50,6 +65,15 @@ function formatFinding(finding: Finding): string[] {
     lines.push(colorize(`           Fix: ${finding.recommendation}`, COLORS.dim));
   }
   
+  if (finding.fingerprint) {
+    const fp = finding.fingerprint.slice(0, 8);
+    lines.push('');
+    lines.push(colorize('           Actions:', COLORS.bold));
+    lines.push(colorize(`             devx fix ${fp}`, COLORS.cyan));
+    lines.push(colorize(`             devx accept ${fp} --reason "explanation here"`, COLORS.cyan));
+  }
+  
+  lines.push('');
   return lines;
 }
 
@@ -137,9 +161,9 @@ export function renderTable(response: AnalyzeResponse): string {
       return order[a.severity] - order[b.severity];
     });
     
-    for (const finding of sortedFindings) {
-      lines.push(...formatFinding(finding));
-    }
+    sortedFindings.forEach((finding, index) => {
+      lines.push(...formatFinding(finding, index));
+    });
   } else {
     lines.push(colorize('Findings', COLORS.bold));
     if (response.analysisType === 'iac') {

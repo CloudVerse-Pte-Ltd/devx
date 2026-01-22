@@ -1,12 +1,21 @@
 import { Command } from 'commander';
 import * as fs from 'fs';
-import { execSync } from 'child_process';
+import { execSync, spawn } from 'child_process';
 import { getConfig, isAuthenticated } from '../config/store';
 import { resolveGitContext, validateGitContext } from '../git/resolve';
-import { collectFiles, getScanModeFromOptions, collectSingleFile, collectAllFiles } from '../git/diff';
+import { collectFiles, getScanModeFromOptions, collectSingleFile, collectAllFiles, FileEntry } from '../git/diff';
 import { analyze, getClientInfo, ApiError, AnalyzeResponse, Finding } from '../api/client';
 import { renderTable, renderPlain } from '../output/render';
 import { renderSarif } from '../output/sarif';
+import { runPreflight } from '../cache/preflight';
+import { 
+  getCacheEntry, 
+  setCacheEntry, 
+  computeCacheKey, 
+  DEFAULT_TTL_WORKING, 
+  DEFAULT_TTL_RANGE 
+} from '../cache/store';
+import { getUnifiedDiff, getDiffHash } from '../git/unified-diff';
 
 const COLORS = {
   reset: '\x1b[0m',
@@ -33,6 +42,12 @@ interface ScanOptions {
   verbose?: boolean;
   warn?: boolean;
   quiet?: boolean;
+  noCache?: boolean;
+  cacheTtl?: number;
+  async?: boolean;
+  sync?: boolean;
+  timeout?: number;
+  refreshCacheOnly?: boolean;
 }
 
 function detectDefaultBranch(repoRoot: string): string {
@@ -134,15 +149,116 @@ function renderWarnMessage(response: AnalyzeResponse): string {
   return lines.join('\n');
 }
 
-function renderPassMessage(): string {
-  return color('  ✓ No cost findings detected.', COLORS.green, COLORS.bold);
+function renderPassMessage(cached?: boolean): string {
+  const suffix = cached ? ' (cached)' : '';
+  return color(`  ✓ No cost findings detected.${suffix}`, COLORS.green, COLORS.bold);
 }
 
 function renderNoFilesMessage(msg: string): string {
   return color(`  ✓ ${msg}`, COLORS.green);
 }
 
+function renderCachedMessage(decision: string, ms?: number): string {
+  const timing = ms ? ` ${ms}ms` : '';
+  if (decision === 'pass') {
+    return color(`DevX: PASS (cached)${timing}`, COLORS.green);
+  } else if (decision === 'block') {
+    return color(`DevX: BLOCK (cached)${timing}`, COLORS.red);
+  }
+  return color(`DevX: ${decision.toUpperCase()} (cached)${timing}`, COLORS.yellow);
+}
+
+function renderAsyncPendingMessage(): string {
+  return color('DevX: analyzing... (will cache)', COLORS.yellow);
+}
+
+function renderTimeoutMessage(): string {
+  return color('DevX: analysis pending (timed out locally). PR checks will enforce policy.', COLORS.yellow);
+}
+
+function startBackgroundRefresh(args: string[]): void {
+  const child = spawn(process.execPath, [process.argv[1], ...args, '--sync', '--quiet', '--refresh-cache-only'], {
+    detached: true,
+    stdio: 'ignore',
+  });
+  child.unref();
+}
+
+async function analyzeWithTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number
+): Promise<{ result: T; timedOut: false } | { result: null; timedOut: true }> {
+  return Promise.race([
+    promise.then(result => ({ result, timedOut: false as const })),
+    new Promise<{ result: null; timedOut: true }>(resolve => 
+      setTimeout(() => resolve({ result: null, timedOut: true }), timeoutMs)
+    ),
+  ]);
+}
+
+function cacheResult(
+  remoteUrl: string,
+  mode: string,
+  diffHash: string,
+  response: AnalyzeResponse,
+  customTtl?: number
+): void {
+  const ttl = customTtl || (mode === 'range' ? DEFAULT_TTL_RANGE : DEFAULT_TTL_WORKING);
+  const cacheKey = computeCacheKey({ remoteUrl, mode, diffHash });
+  setCacheEntry(cacheKey, response, diffHash, ttl);
+}
+
+function outputResults(response: AnalyzeResponse, options: ScanOptions): void {
+  let output = '';
+  
+  if (options.format === 'json') {
+    output = renderJsonFindings(response);
+  } else if (options.format === 'sarif') {
+    output = renderSarif(response);
+  } else {
+    if (options.verbose) {
+      output = renderTable(response);
+    } else if (response.decision === 'block') {
+      output = renderBlockMessage(response);
+    } else if (response.decision === 'warn' || hasNonAdvisoryFindings(response)) {
+      output = renderWarnMessage(response);
+    }
+  }
+  
+  if (options.out) {
+    if (options.format === 'json') {
+      fs.writeFileSync(options.out, renderJsonFindings(response), 'utf-8');
+    } else if (options.format === 'sarif') {
+      fs.writeFileSync(options.out, renderSarif(response), 'utf-8');
+    } else {
+      fs.writeFileSync(options.out, renderPlain(response), 'utf-8');
+    }
+    if (!options.quiet) {
+      console.log(`  Output written to: ${options.out}`);
+    }
+  } else if (!options.quiet && output) {
+    console.log(output);
+  } else if (!options.quiet && response.decision === 'pass' && response.findings.length === 0) {
+    console.log(renderPassMessage());
+    console.log('');
+  }
+}
+
+function exitWithDecision(response: AnalyzeResponse): never {
+  if (response.decision === 'block') {
+    process.exit(2);
+  }
+  
+  if (response.decision === 'warn' || hasNonAdvisoryFindings(response)) {
+    process.exit(1);
+  }
+  
+  process.exit(0);
+}
+
 async function scan(options: ScanOptions): Promise<void> {
+  const startTime = Date.now();
+  
   if (!isAuthenticated()) {
     console.log('');
     console.log('CloudVerse DevX CLI');
@@ -155,11 +271,6 @@ async function scan(options: ScanOptions): Promise<void> {
   }
   
   try {
-    if (!options.quiet) {
-      console.log('');
-      console.log('CloudVerse DevX — Scanning...');
-    }
-    
     const gitContext = resolveGitContext();
     validateGitContext(gitContext);
     
@@ -171,15 +282,82 @@ async function scan(options: ScanOptions): Promise<void> {
       rangeValue = options.range;
     }
     
-    let files;
-    let scanMode: string;
-    let baseRef: string | undefined;
-    let headRef: string | undefined;
+    const diffOptions = getScanModeFromOptions({
+      staged: options.staged,
+      commit: options.commit,
+      range: rangeValue,
+      file: options.file,
+    });
+    
+    const scanMode = diffOptions.mode as 'working' | 'staged' | 'commit' | 'range';
+    const baseRef = diffOptions.baseRef;
+    const headRef = diffOptions.headRef || gitContext.headSha;
+    
+    if (!options.all && !options.file) {
+      const preflight = runPreflight(gitContext.repoRoot, scanMode, {
+        baseRef,
+        headRef,
+        commitSha: diffOptions.commitSha,
+      });
+      
+      if (!preflight.hasRelevantChanges) {
+        if (options.verbose) {
+          console.log(`DevX: ${preflight.reason}`);
+        }
+        process.exit(0);
+      }
+    }
+    
+    const diffHash = options.all ? 'all-files' : getDiffHash(gitContext.repoRoot, scanMode, {
+      baseRef,
+      headRef,
+      commitSha: diffOptions.commitSha,
+    });
+    
+    const useAsync = options.async !== false && !options.sync && process.stdout.isTTY;
+    const timeoutMs = options.timeout ? options.timeout * 1000 : (useAsync ? 800 : 30000);
+    
+    if (!options.noCache) {
+      const cacheKey = computeCacheKey({
+        remoteUrl: gitContext.remoteUrl,
+        mode: scanMode,
+        diffHash,
+      });
+      
+      const cached = getCacheEntry(cacheKey);
+      
+      if (cached) {
+        const elapsed = Date.now() - startTime;
+        
+        if (options.refreshCacheOnly) {
+          process.exit(0);
+        }
+        
+        if (!options.quiet) {
+          console.log(renderCachedMessage(cached.response.decision, elapsed));
+        }
+        
+        if (useAsync && !options.refreshCacheOnly) {
+          const refreshArgs = process.argv.slice(2).filter(arg => 
+            !arg.includes('--async') && !arg.includes('--refresh-cache-only')
+          );
+          startBackgroundRefresh(refreshArgs);
+        }
+        
+        outputResults(cached.response, options);
+        exitWithDecision(cached.response);
+      }
+    }
+    
+    if (!options.quiet && !options.refreshCacheOnly) {
+      console.log('');
+      console.log('CloudVerse DevX — Scanning...');
+    }
+    
+    let files: FileEntry[] = [];
     
     if (options.all) {
       files = collectAllFiles(gitContext.repoRoot);
-      scanMode = 'working';
-      headRef = gitContext.headSha;
       
       if (files.length === 0) {
         if (!options.quiet) {
@@ -193,40 +371,105 @@ async function scan(options: ScanOptions): Promise<void> {
       if (!options.quiet && files.length >= 50) {
         console.log('  Note: Scan limited to 50 files (2MB max). Use --file for specific files.');
       }
-    } else {
-      const diffOptions = getScanModeFromOptions({
-        staged: options.staged,
-        commit: options.commit,
-        range: rangeValue,
-        file: options.file,
-      });
-      scanMode = diffOptions.mode;
-      baseRef = diffOptions.baseRef;
-      headRef = diffOptions.headRef || gitContext.headSha;
-      
-      if (diffOptions.singleFile) {
-        const file = collectSingleFile(gitContext.repoRoot, diffOptions.singleFile);
-        if (!file) {
-          if (!options.quiet) {
-            console.log('');
-            console.log(`  File not found or binary: ${diffOptions.singleFile}`);
-            console.log('');
-          }
-          process.exit(0);
-        }
-        files = [file];
-      } else {
-        files = collectFiles(gitContext.repoRoot, diffOptions);
-      }
-      
-      if (files.length === 0) {
+    } else if (diffOptions.singleFile) {
+      const file = collectSingleFile(gitContext.repoRoot, diffOptions.singleFile);
+      if (!file) {
         if (!options.quiet) {
           console.log('');
-          console.log(renderNoFilesMessage('No changed files to analyze.'));
+          console.log(`  File not found or binary: ${diffOptions.singleFile}`);
           console.log('');
         }
         process.exit(0);
       }
+      files = [file];
+    } else {
+      const unifiedDiff = getUnifiedDiff(gitContext.repoRoot, scanMode, {
+        baseRef,
+        headRef,
+        commitSha: diffOptions.commitSha,
+      });
+      
+      if (unifiedDiff) {
+        const config = getConfig();
+        
+        const analyzePromise = analyze({
+          orgId: config.orgId!,
+          userId: config.userId!,
+          machineId: config.machineId,
+          repo: {
+            provider: gitContext.provider,
+            owner: gitContext.owner,
+            name: gitContext.name,
+            remoteUrl: gitContext.remoteUrl,
+          },
+          scan: {
+            mode: scanMode,
+            baseRef,
+            headRef,
+          },
+          git: {
+            branch: gitContext.branch,
+            headSha: gitContext.headSha,
+          },
+          diff: {
+            format: 'unified',
+            unified: unifiedDiff.diff.unified,
+            text: unifiedDiff.diff.text,
+            hash: unifiedDiff.diff.hash,
+          },
+          filesMeta: unifiedDiff.filesMeta,
+          client: getClientInfo(),
+        });
+        
+        const result = await analyzeWithTimeout(analyzePromise, timeoutMs);
+        
+        if (result.timedOut) {
+          if (useAsync && !options.noCache) {
+            if (!options.quiet) {
+              console.log(renderAsyncPendingMessage());
+            }
+            
+            const refreshArgs = process.argv.slice(2).filter(arg => 
+              !arg.includes('--async')
+            );
+            startBackgroundRefresh(refreshArgs);
+            
+            process.exit(0);
+          } else {
+            if (!options.quiet) {
+              console.log(renderTimeoutMessage());
+            }
+            process.exit(0);
+          }
+        }
+        
+        const response = result.result;
+        cacheResult(gitContext.remoteUrl, scanMode, diffHash, response, options.cacheTtl);
+        
+        if (options.refreshCacheOnly) {
+          process.exit(0);
+        }
+        
+        if (!options.quiet) {
+          console.log(`  Repository: ${gitContext.owner}/${gitContext.name}`);
+          console.log(`  Mode: ${scanMode}, Files: ${unifiedDiff.filesMeta.length}`);
+          console.log('');
+        }
+        
+        outputResults(response, options);
+        exitWithDecision(response);
+      }
+      
+      files = collectFiles(gitContext.repoRoot, diffOptions);
+    }
+    
+    if (files.length === 0) {
+      if (!options.quiet) {
+        console.log('');
+        console.log(renderNoFilesMessage('No changed files to analyze.'));
+        console.log('');
+      }
+      process.exit(0);
     }
     
     if (!options.quiet) {
@@ -237,7 +480,7 @@ async function scan(options: ScanOptions): Promise<void> {
     
     const config = getConfig();
     
-    const response = await analyze({
+    const analyzePromise = analyze({
       orgId: config.orgId!,
       userId: config.userId!,
       machineId: config.machineId,
@@ -264,49 +507,36 @@ async function scan(options: ScanOptions): Promise<void> {
       client: getClientInfo(),
     });
     
-    let output = '';
+    const result = await analyzeWithTimeout(analyzePromise, timeoutMs);
     
-    if (options.format === 'json') {
-      output = renderJsonFindings(response);
-    } else if (options.format === 'sarif') {
-      output = renderSarif(response);
-    } else {
-      if (options.verbose) {
-        output = renderTable(response);
-      } else if (response.decision === 'block') {
-        output = renderBlockMessage(response);
-      } else if (response.decision === 'warn' || hasNonAdvisoryFindings(response)) {
-        output = renderWarnMessage(response);
-      }
-    }
-    
-    if (options.out) {
-      if (options.format === 'json') {
-        fs.writeFileSync(options.out, renderJsonFindings(response), 'utf-8');
-      } else if (options.format === 'sarif') {
-        fs.writeFileSync(options.out, renderSarif(response), 'utf-8');
+    if (result.timedOut) {
+      if (useAsync && !options.noCache) {
+        if (!options.quiet) {
+          console.log(renderAsyncPendingMessage());
+        }
+        
+        const refreshArgs = process.argv.slice(2).filter(arg => 
+          !arg.includes('--async')
+        );
+        startBackgroundRefresh(refreshArgs);
+        
+        process.exit(0);
       } else {
-        fs.writeFileSync(options.out, renderPlain(response), 'utf-8');
+        if (!options.quiet) {
+          console.log(renderTimeoutMessage());
+        }
+        process.exit(0);
       }
-      if (!options.quiet) {
-        console.log(`  Output written to: ${options.out}`);
-      }
-    } else if (!options.quiet && output) {
-      console.log(output);
-    } else if (!options.quiet && response.decision === 'pass' && response.findings.length === 0) {
-      console.log(renderPassMessage());
-      console.log('');
     }
     
-    if (response.decision === 'block') {
-      process.exit(2);
+    const response = result.result;
+    
+    if (!options.noCache) {
+      cacheResult(gitContext.remoteUrl, scanMode, diffHash, response, options.cacheTtl);
     }
     
-    if (response.decision === 'warn' || hasNonAdvisoryFindings(response)) {
-      process.exit(1);
-    }
-    
-    process.exit(0);
+    outputResults(response, options);
+    exitWithDecision(response);
     
   } catch (e) {
     if (e instanceof ApiError) {
@@ -343,5 +573,11 @@ export function createScanCommand(): Command {
     .option('--verbose', 'Show full output even when clean')
     .option('--warn', 'Show output when warnings are present')
     .option('--quiet', 'Suppress all output (for scripts)')
+    .option('--no-cache', 'Disable local result caching')
+    .option('--cache-ttl <seconds>', 'Override cache TTL in seconds', parseInt)
+    .option('--async', 'Enable async mode (default for TTY)')
+    .option('--sync', 'Force synchronous mode (wait for results)')
+    .option('--timeout <seconds>', 'Timeout in seconds for sync mode', parseInt)
+    .option('--refresh-cache-only', 'Update cache without output (internal)')
     .action(scan);
 }

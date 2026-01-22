@@ -3,6 +3,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import { isAuthenticated } from '../config/store';
+import { 
+  loadHooksConfig, 
+  saveHooksConfig, 
+  generatePreCommitHook, 
+  generatePrePushHook,
+  getDefaultConfig,
+  HooksConfig 
+} from '../config/hooks-config';
 
 function requireAuth(): void {
   if (!isAuthenticated()) {
@@ -20,33 +28,6 @@ function requireAuth(): void {
 const HOOK_MARKER = '# CloudVerse DevX hook (managed)';
 const HOOK_MARKER_START = '# >>> CloudVerse DevX Start';
 const HOOK_MARKER_END = '# <<< CloudVerse DevX End';
-
-const PRE_COMMIT_HOOK = `${HOOK_MARKER}
-${HOOK_MARKER_START}
-devx scan --staged --quiet --warn 2>/dev/null
-DEVX_EXIT=$?
-if [ $DEVX_EXIT -eq 2 ]; then
-  echo "DevX: block-level cost signals detected. Run \`devx scan --staged\` for details."
-  exit 1
-elif [ $DEVX_EXIT -eq 1 ]; then
-  echo "DevX: cost signals detected (warn-only). Run \`devx scan --staged\` for details."
-fi
-${HOOK_MARKER_END}`;
-
-const PRE_PUSH_HOOK = `${HOOK_MARKER}
-${HOOK_MARKER_START}
-DEFAULT_BRANCH="main"
-if git rev-parse --verify origin/main >/dev/null 2>&1; then
-  DEFAULT_BRANCH="main"
-elif git rev-parse --verify origin/master >/dev/null 2>&1; then
-  DEFAULT_BRANCH="master"
-fi
-devx scan --range "origin/$DEFAULT_BRANCH..HEAD"
-DEVX_EXIT=$?
-if [ $DEVX_EXIT -eq 2 ]; then
-  exit 1
-fi
-${HOOK_MARKER_END}`;
 
 function getGitHooksDir(): string {
   try {
@@ -119,7 +100,14 @@ function uninstallHook(hooksDir: string, hookName: string): boolean {
   return true;
 }
 
-function installHooks(): void {
+interface InstallOptions {
+  format?: 'quiet' | 'summary' | 'full';
+  blockOn?: 'block' | 'warn' | 'none';
+  preCommit?: boolean;
+  prePush?: boolean;
+}
+
+function installHooks(options: InstallOptions = {}): void {
   requireAuth();
   
   try {
@@ -128,19 +116,60 @@ function installHooks(): void {
     if (!fs.existsSync(hooksDir)) {
       fs.mkdirSync(hooksDir, { recursive: true });
     }
+
+    const config = loadHooksConfig();
+    
+    if (options.format) {
+      config.preCommit.format = options.format;
+      config.prePush.format = options.format;
+    }
+    
+    if (options.blockOn) {
+      config.preCommit.blockOn = options.blockOn;
+      config.prePush.blockOn = options.blockOn;
+    }
+
+    if (options.preCommit === false) {
+      config.preCommit.enabled = false;
+    }
+    
+    if (options.prePush === false) {
+      config.prePush.enabled = false;
+    }
+
+    saveHooksConfig(config);
     
     console.log('');
     console.log('Installing DevX git hooks...');
-    
-    installHook(hooksDir, 'pre-commit', PRE_COMMIT_HOOK);
-    console.log('  ✓ pre-commit hook installed');
-    
-    installHook(hooksDir, 'pre-push', PRE_PUSH_HOOK);
-    console.log('  ✓ pre-push hook installed');
+
+    if (config.preCommit.enabled) {
+      const preCommitHook = generatePreCommitHook(config);
+      installHook(hooksDir, 'pre-commit', preCommitHook);
+      console.log(`  ✓ pre-commit hook installed (format: ${config.preCommit.format}, block-on: ${config.preCommit.blockOn})`);
+    } else {
+      if (uninstallHook(hooksDir, 'pre-commit')) {
+        console.log('  ✓ pre-commit hook removed (disabled)');
+      } else {
+        console.log('  - pre-commit hook disabled');
+      }
+    }
+
+    if (config.prePush.enabled) {
+      const prePushHook = generatePrePushHook(config);
+      installHook(hooksDir, 'pre-push', prePushHook);
+      console.log(`  ✓ pre-push hook installed (format: ${config.prePush.format}, block-on: ${config.prePush.blockOn})`);
+    } else {
+      if (uninstallHook(hooksDir, 'pre-push')) {
+        console.log('  ✓ pre-push hook removed (disabled)');
+      } else {
+        console.log('  - pre-push hook disabled');
+      }
+    }
     
     console.log('');
     console.log('Hooks installed successfully!');
     console.log('');
+    console.log('Configuration saved to .devxrc');
     console.log('DevX will now analyze your changes before commit and push.');
     console.log('To bypass: git commit --no-verify');
     console.log('');
@@ -187,6 +216,7 @@ function uninstallHooks(): void {
 function hooksStatus(): void {
   try {
     const hooksDir = getGitHooksDir();
+    const config = loadHooksConfig();
     
     console.log('');
     console.log('CloudVerse DevX — Hook Status');
@@ -202,7 +232,14 @@ function hooksStatus(): void {
     const prePushManaged = prePushExists && hasDevxHook(fs.readFileSync(prePushPath, 'utf-8'));
     
     console.log(`pre-commit: ${preCommitManaged ? '✓ Installed (managed by DevX)' : preCommitExists ? '⚠ Exists (not managed)' : '✗ Not installed'}`);
+    if (preCommitManaged) {
+      console.log(`            Format: ${config.preCommit.format}, Block on: ${config.preCommit.blockOn}`);
+    }
+    
     console.log(`pre-push:   ${prePushManaged ? '✓ Installed (managed by DevX)' : prePushExists ? '⚠ Exists (not managed)' : '✗ Not installed'}`);
+    if (prePushManaged) {
+      console.log(`            Format: ${config.prePush.format}, Block on: ${config.prePush.blockOn}`);
+    }
     console.log('');
     
     if (!preCommitManaged || !prePushManaged) {
@@ -218,13 +255,56 @@ function hooksStatus(): void {
   }
 }
 
+function hooksConfig(): void {
+  try {
+    const config = loadHooksConfig();
+    
+    console.log('');
+    console.log('CloudVerse DevX — Hooks Configuration');
+    console.log('');
+    console.log('pre-commit:');
+    console.log(`  enabled:         ${config.preCommit.enabled}`);
+    console.log(`  format:          ${config.preCommit.format}`);
+    console.log(`  block-on:        ${config.preCommit.blockOn}`);
+    console.log(`  show-cost-impact: ${config.preCommit.showCostImpact}`);
+    console.log('');
+    console.log('pre-push:');
+    console.log(`  enabled:         ${config.prePush.enabled}`);
+    console.log(`  format:          ${config.prePush.format}`);
+    console.log(`  block-on:        ${config.prePush.blockOn}`);
+    console.log(`  show-cost-impact: ${config.prePush.showCostImpact}`);
+    console.log(`  compare-with:    ${config.prePush.compareWith}`);
+    console.log('');
+    console.log('Configuration is stored in .devxrc');
+    console.log('Run `devx hooks install --format <mode>` to change settings.');
+    console.log('');
+    
+  } catch (e) {
+    if (e instanceof Error) {
+      console.error(`Error: ${e.message}`);
+    }
+    process.exit(3);
+  }
+}
+
 export function createHooksCommand(): Command {
   const hooks = new Command('hooks')
     .description('Manage DevX git hooks');
   
   hooks.command('install')
     .description('Install DevX git hooks (pre-commit, pre-push)')
-    .action(installHooks);
+    .option('--format <mode>', 'Output format: quiet, summary, full', 'quiet')
+    .option('--block-on <level>', 'Block commits on: block, warn, none', 'block')
+    .option('--no-pre-commit', 'Skip pre-commit hook installation')
+    .option('--no-pre-push', 'Skip pre-push hook installation')
+    .action((options) => {
+      installHooks({
+        format: options.format as 'quiet' | 'summary' | 'full',
+        blockOn: options.blockOn as 'block' | 'warn' | 'none',
+        preCommit: options.preCommit,
+        prePush: options.prePush,
+      });
+    });
   
   hooks.command('uninstall')
     .description('Remove DevX git hooks')
@@ -233,6 +313,10 @@ export function createHooksCommand(): Command {
   hooks.command('status')
     .description('Show hook installation status')
     .action(hooksStatus);
+
+  hooks.command('config')
+    .description('Show current hooks configuration')
+    .action(hooksConfig);
   
   return hooks;
 }
@@ -240,7 +324,18 @@ export function createHooksCommand(): Command {
 export function createInstallHooksCommand(): Command {
   return new Command('install-hooks')
     .description('Install DevX git hooks (pre-commit, pre-push)')
-    .action(installHooks);
+    .option('--format <mode>', 'Output format: quiet, summary, full', 'quiet')
+    .option('--block-on <level>', 'Block commits on: block, warn, none', 'block')
+    .option('--no-pre-commit', 'Skip pre-commit hook installation')
+    .option('--no-pre-push', 'Skip pre-push hook installation')
+    .action((options) => {
+      installHooks({
+        format: options.format as 'quiet' | 'summary' | 'full',
+        blockOn: options.blockOn as 'block' | 'warn' | 'none',
+        preCommit: options.preCommit,
+        prePush: options.prePush,
+      });
+    });
 }
 
 export function createUninstallHooksCommand(): Command {

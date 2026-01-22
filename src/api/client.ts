@@ -51,16 +51,36 @@ export interface AnalyzeRequest {
     branch: string;
     headSha: string;
   };
-  files: Array<{
+  files?: Array<{
     path: string;
     content: string;
     sha?: string;
+  }>;
+  diff?: {
+    format: 'unified';
+    unified: number;
+    text: string;
+    hash: string;
+  };
+  filesMeta?: Array<{
+    path: string;
+    status: string;
+    additions: number;
+    deletions: number;
   }>;
   client: {
     type: 'cli';
     version: string;
     os: string;
   };
+}
+
+export interface RebuttalStatusInfo {
+  isExpired: boolean;
+  isPending: boolean;
+  daysUntilExpiry?: number;
+  statusLabel: string;
+  statusEmoji: string;
 }
 
 export interface Finding {
@@ -76,6 +96,10 @@ export interface Finding {
   recommendation: string;
   autofixAvailable: boolean;
   costImpact?: string;
+  fingerprint?: string;
+  confidence?: number;
+  isTrusted?: boolean;
+  rebuttalStatus?: RebuttalStatusInfo;
 }
 
 export interface AnalyzeResponse {
@@ -223,4 +247,97 @@ export async function ping(): Promise<PingResponse> {
 
   const machineIdParam = config.machineId ? `?machineId=${config.machineId}` : '';
   return request<PingResponse>('GET', `/api/cli/ping${machineIdParam}`, undefined, config.accessToken);
+}
+
+export interface AcceptFindingRequest {
+  fingerprint: string;
+  reason: string;
+  scope?: 'line' | 'function' | 'file' | 'resource';
+  severity?: 'LOW' | 'MEDIUM' | 'HIGH';
+  appId?: string;
+  expiresInDays?: number;
+  ruleId?: string;
+}
+
+export interface IntentionalFindingData {
+  id: string;
+  fingerprint: string;
+  ruleId: string;
+  severity: string;
+  reason: string;
+  author: string;
+  appId?: string;
+  createdAt: string;
+  expiresAt?: string;
+  reviewStatus: 'auto' | 'pending' | 'approved' | 'rejected';
+  reviewer?: string;
+  reviewedAt?: string;
+}
+
+export interface AcceptFindingResponse {
+  success: boolean;
+  intentional?: IntentionalFindingData;
+  requiresApproval?: boolean;
+}
+
+export async function acceptFinding(params: AcceptFindingRequest): Promise<AcceptFindingResponse> {
+  const config = getConfig();
+  if (!config.accessToken) {
+    throw new ApiError('Not authenticated. Run: devx auth login', 401);
+  }
+
+  if (!config.orgId) {
+    throw new ApiError('No organization selected. Run: devx auth login', 401);
+  }
+
+  return request<AcceptFindingResponse>('POST', '/api/v1/devx/noise-control/intentional', {
+    fingerprint: params.fingerprint,
+    reason: params.reason,
+    scope: params.scope || 'line',
+    severity: params.severity,
+    appId: params.appId,
+    expiresInDays: params.expiresInDays,
+    ruleId: params.ruleId,
+  }, config.accessToken);
+}
+
+export interface ListRebuttalsResponse {
+  intentionals: IntentionalFindingData[];
+}
+
+export async function listRebuttals(options?: { pending?: boolean; appId?: string }): Promise<ListRebuttalsResponse> {
+  const config = getConfig();
+  if (!config.accessToken) {
+    throw new ApiError('Not authenticated. Run: devx auth login', 401);
+  }
+
+  const params = new URLSearchParams();
+  if (options?.pending) params.append('pending', 'true');
+  if (options?.appId) params.append('appId', options.appId);
+
+  const queryString = params.toString() ? `?${params.toString()}` : '';
+  return request<ListRebuttalsResponse>('GET', `/api/v1/devx/noise-control/intentional${queryString}`, undefined, config.accessToken);
+}
+
+export interface ApproveRejectResponse {
+  success: boolean;
+  intentional?: IntentionalFindingData;
+}
+
+export async function approveRebuttal(id: string): Promise<ApproveRejectResponse> {
+  const config = getConfig();
+  if (!config.accessToken) {
+    throw new ApiError('Not authenticated. Run: devx auth login', 401);
+  }
+
+  return request<ApproveRejectResponse>('POST', `/api/v1/devx/noise-control/intentional/${id}/approve`, {}, config.accessToken);
+}
+
+export async function rejectRebuttal(id: string): Promise<ApproveRejectResponse> {
+  const config = getConfig();
+  if (!config.accessToken) {
+    throw new ApiError('Not authenticated. Run: devx auth login', 401);
+  }
+
+  return request<ApproveRejectResponse>('POST', `/api/v1/devx/noise-control/intentional/${id}/reject`, {}, config.accessToken);
 }

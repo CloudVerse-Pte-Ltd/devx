@@ -6,6 +6,8 @@ import { createScanCommand } from './commands/scan';
 import { createHooksCommand, createInstallHooksCommand, createUninstallHooksCommand } from './commands/hooks';
 import { createExplainCommand } from './commands/explain';
 import { createDoctorCommand } from './commands/doctor';
+import { createAcceptCommand } from './commands/accept';
+import { createRebuttalCommand } from './commands/rebuttal';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -34,5 +36,7 @@ program.addCommand(createInstallHooksCommand());
 program.addCommand(createUninstallHooksCommand());
 program.addCommand(createExplainCommand());
 program.addCommand(createDoctorCommand());
+program.addCommand(createAcceptCommand());
+program.addCommand(createRebuttalCommand());
 
 program.parse();
