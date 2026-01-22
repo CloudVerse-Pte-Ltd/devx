@@ -12,7 +12,7 @@ const program = new Command();
 program
   .name('devx')
   .description('CloudVerse DevX CLI - Local cost analysis for developers')
-  .version('1.0.0');
+  .version('1.7.1');
 
 program.addCommand(createAuthCommand());
 program.addCommand(createScanCommand());
