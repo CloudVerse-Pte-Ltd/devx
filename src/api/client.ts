@@ -1,7 +1,19 @@
 import * as https from 'https';
 import * as http from 'http';
+import * as fs from 'fs';
+import * as path from 'path';
 import { URL } from 'url';
 import { getConfig } from '../config/store';
+
+function getCliVersion(): string {
+  try {
+    const pkgPath = path.resolve(__dirname, '../../package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+    return pkg.version || '1.0.0';
+  } catch {
+    return '1.0.0';
+  }
+}
 
 export interface DeviceAuthStartResponse {
   deviceCode: string;
@@ -114,7 +126,7 @@ function request<T>(
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'User-Agent': 'devx-cli/1.0.0',
+      'User-Agent': `devx-cli/${getCliVersion()}`,
     };
 
     if (token) {
@@ -169,7 +181,7 @@ export async function startDeviceAuth(): Promise<DeviceAuthStartResponse> {
     client: 'devx-cli',
     machineId: config.machineId,
     os: process.platform,
-    version: '1.0.0',
+    version: getCliVersion(),
   });
 }
 
@@ -189,7 +201,7 @@ export async function analyze(payload: AnalyzeRequest): Promise<AnalyzeResponse>
 export function getClientInfo(): { type: 'cli'; version: string; os: string } {
   return {
     type: 'cli',
-    version: '1.0.0',
+    version: getCliVersion(),
     os: process.platform === 'darwin' ? 'darwin' : 'linux',
   };
 }
