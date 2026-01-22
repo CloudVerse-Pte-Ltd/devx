@@ -20,15 +20,12 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        working-directory: packages/cli
         run: npm ci
 
       - name: Build CLI
-        working-directory: packages/cli
         run: npm run build
 
       - name: Package binary
-        working-directory: packages/cli
         run: |
           npx pkg dist/index.js --target node20-linux-x64 --output devx-linux-x64
 
@@ -36,7 +33,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: devx-linux-x64
-          path: packages/cli/devx-linux-x64
+          path: devx-linux-x64
 
   build-macos:
     runs-on: macos-latest
@@ -56,15 +53,12 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        working-directory: packages/cli
         run: npm ci
 
       - name: Build CLI
-        working-directory: packages/cli
         run: npm run build
 
       - name: Package binary
-        working-directory: packages/cli
         run: |
           npx pkg dist/index.js --target node20-${{ matrix.target }} --output devx-${{ matrix.target }}
 
@@ -72,7 +66,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: devx-${{ matrix.target }}
-          path: packages/cli/devx-${{ matrix.target }}
+          path: devx-${{ matrix.target }}
 
   release:
     needs: [build-linux, build-macos]
@@ -122,10 +116,9 @@ jobs:
           mv SHA256SUMS.asc SHA256SUMS.sig
 
       - name: Generate SBOM
-        working-directory: packages/cli
         run: |
           npm install -g @cyclonedx/cyclonedx-npm
-          cyclonedx-npm --output-format JSON --output-file ../../release/sbom.cdx.json
+          cyclonedx-npm --output-format JSON --output-file release/sbom.cdx.json
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
