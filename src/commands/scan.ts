@@ -216,6 +216,10 @@ async function scan(options: ScanOptions): Promise<void> {
       }
     } else if (shouldPrintToConsole && output) {
       console.log(output);
+    } else if (!options.quiet && response.decision === 'pass' && response.findings.length === 0) {
+      console.log('');
+      console.log('  ✓ No cost findings detected.');
+      console.log('');
     }
     
     if (response.decision === 'block') {
