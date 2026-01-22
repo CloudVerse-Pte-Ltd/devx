@@ -35,12 +35,22 @@ function getDecisionColor(decision: string): string {
   }
 }
 
-function formatFinding(finding: Finding): string {
+function formatFinding(finding: Finding): string[] {
+  const lines: string[] = [];
   const severity = colorize(finding.severity.toUpperCase().padEnd(10), getSeverityColor(finding.severity), COLORS.bold);
   const location = finding.file ? colorize(`${finding.file}:${finding.line}`, COLORS.cyan) : '—';
   const impact = finding.costImpact || '—';
   
-  return `${severity} ${finding.title.padEnd(30)} ${location.padEnd(30)} ${impact}`;
+  lines.push(`${severity} ${finding.title.padEnd(30)} ${location.padEnd(30)} ${impact}`);
+  
+  if (finding.message) {
+    lines.push(colorize(`           Why: ${finding.message}`, COLORS.dim));
+  }
+  if (finding.recommendation) {
+    lines.push(colorize(`           Fix: ${finding.recommendation}`, COLORS.dim));
+  }
+  
+  return lines;
 }
 
 function formatAnalysisType(analysisType: 'code' | 'iac' | 'mixed'): string {
@@ -128,7 +138,7 @@ export function renderTable(response: AnalyzeResponse): string {
     });
     
     for (const finding of sortedFindings) {
-      lines.push(formatFinding(finding));
+      lines.push(...formatFinding(finding));
     }
   } else {
     lines.push(colorize('Findings', COLORS.bold));
@@ -214,9 +224,16 @@ export function renderPlain(response: AnalyzeResponse): string {
       const severity = finding.severity.toUpperCase().padEnd(7);
       const location = `${finding.file}:${finding.line}`;
       lines.push(`  ${severity} ${location} — ${finding.title}`);
-      if (finding.recommendation) {
-        lines.push(`          → ${finding.recommendation}`);
+      if (finding.message) {
+        lines.push(`          Why: ${finding.message}`);
       }
+      if (finding.recommendation) {
+        lines.push(`          Fix: ${finding.recommendation}`);
+      }
+      if (finding.costImpact) {
+        lines.push(`          Impact: ${finding.costImpact}`);
+      }
+      lines.push('');
     }
   } else {
     if (response.analysisType === 'iac') {

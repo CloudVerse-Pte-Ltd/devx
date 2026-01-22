@@ -189,3 +189,70 @@ export function collectSingleFile(repoRoot: string, filePath: string): FileEntry
     return null;
   }
 }
+
+const SCANNABLE_EXTENSIONS = new Set([
+  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
+  '.py', '.java', '.go', '.rs', '.rb', '.php',
+  '.tf', '.yaml', '.yml', '.json',
+  '.cs', '.kt', '.scala', '.swift',
+]);
+
+const IGNORE_DIRS = new Set([
+  'node_modules', '.git', 'dist', 'build', 'out', 
+  '.next', '.nuxt', 'vendor', '__pycache__', '.venv',
+  'target', 'bin', 'obj', '.terraform', '.cache',
+]);
+
+export function collectAllFiles(repoRoot: string): FileEntry[] {
+  const files: FileEntry[] = [];
+  let totalBytes = 0;
+  
+  function walkDir(dir: string, relativePath: string = '') {
+    if (files.length >= MAX_FILES) return;
+    
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    
+    for (const entry of entries) {
+      if (files.length >= MAX_FILES) break;
+      
+      const fullPath = path.join(dir, entry.name);
+      const relPath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
+      
+      if (entry.isDirectory()) {
+        if (!IGNORE_DIRS.has(entry.name) && !entry.name.startsWith('.')) {
+          walkDir(fullPath, relPath);
+        }
+      } else if (entry.isFile()) {
+        const ext = path.extname(entry.name).toLowerCase();
+        if (!SCANNABLE_EXTENSIONS.has(ext)) continue;
+        
+        try {
+          const content = fs.readFileSync(fullPath, 'utf-8');
+          if (isBinaryContent(content)) continue;
+          
+          const fileBytes = Buffer.byteLength(content, 'utf-8');
+          if (totalBytes + fileBytes > MAX_PAYLOAD_BYTES) {
+            continue;
+          }
+          totalBytes += fileBytes;
+          
+          files.push({
+            path: relPath,
+            content,
+            sha: exec(`git hash-object "${relPath}"`, repoRoot) || undefined,
+          });
+        } catch {
+          continue;
+        }
+      }
+    }
+  }
+  
+  walkDir(repoRoot);
+  return files;
+}

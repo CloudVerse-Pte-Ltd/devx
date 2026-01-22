@@ -3,16 +3,31 @@ import * as fs from 'fs';
 import { execSync } from 'child_process';
 import { getConfig, isAuthenticated } from '../config/store';
 import { resolveGitContext, validateGitContext } from '../git/resolve';
-import { collectFiles, getScanModeFromOptions, collectSingleFile } from '../git/diff';
+import { collectFiles, getScanModeFromOptions, collectSingleFile, collectAllFiles } from '../git/diff';
 import { analyze, getClientInfo, ApiError, AnalyzeResponse, Finding } from '../api/client';
 import { renderTable, renderPlain } from '../output/render';
 import { renderSarif } from '../output/sarif';
+
+const COLORS = {
+  reset: '\x1b[0m',
+  bold: '\x1b[1m',
+  red: '\x1b[31m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  orange: '\x1b[38;5;208m',
+};
+
+function color(text: string, ...codes: string[]): string {
+  if (!process.stdout.isTTY) return text;
+  return codes.join('') + text + COLORS.reset;
+}
 
 interface ScanOptions {
   staged?: boolean;
   commit?: string;
   range?: string | boolean;
   file?: string;
+  all?: boolean;
   format?: 'plain' | 'json' | 'sarif';
   out?: string;
   verbose?: boolean;
@@ -55,22 +70,45 @@ function renderJsonFindings(response: AnalyzeResponse): string {
   return JSON.stringify(output, null, 2);
 }
 
+function renderFindingDetails(finding: Finding): string[] {
+  const lines: string[] = [];
+  const severityColors: Record<string, string> = { high: '🔴', medium: '🟡', low: '🔵' };
+  const icon = severityColors[finding.severity] || '⚪';
+  
+  lines.push(`${icon} ${finding.severity.toUpperCase()}: ${finding.title}`);
+  lines.push(`   File: ${finding.file}:${finding.line}`);
+  
+  if (finding.message) {
+    lines.push(`   Why: ${finding.message}`);
+  }
+  
+  if (finding.recommendation) {
+    lines.push(`   Fix: ${finding.recommendation}`);
+  }
+  
+  if (finding.costImpact) {
+    lines.push(`   Impact: ${finding.costImpact}`);
+  }
+  
+  return lines;
+}
+
 function renderBlockMessage(response: AnalyzeResponse): string {
   const lines: string[] = [];
   lines.push('');
-  lines.push('CloudVerse DevX: BLOCKED');
+  lines.push(color('CloudVerse DevX: BLOCKED', COLORS.red, COLORS.bold));
   lines.push('');
   
   const blockingFindings = response.findings.filter(f => f.severity === 'high');
   for (const finding of blockingFindings.slice(0, 5)) {
-    lines.push(`  ${finding.severity.toUpperCase()}: ${finding.file}:${finding.line} - ${finding.title}`);
+    lines.push(...renderFindingDetails(finding));
+    lines.push('');
   }
   
   if (blockingFindings.length > 5) {
     lines.push(`  ... and ${blockingFindings.length - 5} more`);
   }
   
-  lines.push('');
   lines.push('Fix the findings or bypass with: --no-verify');
   lines.push('');
   
@@ -80,21 +118,28 @@ function renderBlockMessage(response: AnalyzeResponse): string {
 function renderWarnMessage(response: AnalyzeResponse): string {
   const lines: string[] = [];
   lines.push('');
-  lines.push('CloudVerse DevX: WARNING');
+  lines.push(color('CloudVerse DevX: WARNING', COLORS.orange, COLORS.bold));
   lines.push('');
   
   const warnFindings = response.findings.filter(f => f.severity === 'medium' || f.severity === 'high');
   for (const finding of warnFindings.slice(0, 5)) {
-    lines.push(`  ${finding.severity.toUpperCase()}: ${finding.file}:${finding.line} - ${finding.title}`);
+    lines.push(...renderFindingDetails(finding));
+    lines.push('');
   }
   
   if (warnFindings.length > 5) {
     lines.push(`  ... and ${warnFindings.length - 5} more`);
   }
   
-  lines.push('');
-  
   return lines.join('\n');
+}
+
+function renderPassMessage(): string {
+  return color('  ✓ No cost findings detected.', COLORS.green, COLORS.bold);
+}
+
+function renderNoFilesMessage(msg: string): string {
+  return color(`  ✓ ${msg}`, COLORS.green);
 }
 
 async function scan(options: ScanOptions): Promise<void> {
@@ -126,40 +171,67 @@ async function scan(options: ScanOptions): Promise<void> {
       rangeValue = options.range;
     }
     
-    const diffOptions = getScanModeFromOptions({
-      staged: options.staged,
-      commit: options.commit,
-      range: rangeValue,
-      file: options.file,
-    });
-    
     let files;
+    let scanMode: string;
+    let baseRef: string | undefined;
+    let headRef: string | undefined;
     
-    if (diffOptions.singleFile) {
-      const file = collectSingleFile(gitContext.repoRoot, diffOptions.singleFile);
-      if (!file) {
-        if (options.verbose) {
-          console.error(`File not found or binary: ${diffOptions.singleFile}`);
+    if (options.all) {
+      files = collectAllFiles(gitContext.repoRoot);
+      scanMode = 'working';
+      headRef = gitContext.headSha;
+      
+      if (files.length === 0) {
+        if (!options.quiet) {
+          console.log('');
+          console.log(renderNoFilesMessage('No scannable files found in repository.'));
+          console.log('');
         }
         process.exit(0);
       }
-      files = [file];
-    } else {
-      files = collectFiles(gitContext.repoRoot, diffOptions);
-    }
-    
-    if (files.length === 0) {
-      if (!options.quiet) {
-        console.log('');
-        console.log('  ✓ No changed files to analyze.');
-        console.log('');
+      
+      if (!options.quiet && files.length >= 50) {
+        console.log('  Note: Scan limited to 50 files (2MB max). Use --file for specific files.');
       }
-      process.exit(0);
+    } else {
+      const diffOptions = getScanModeFromOptions({
+        staged: options.staged,
+        commit: options.commit,
+        range: rangeValue,
+        file: options.file,
+      });
+      scanMode = diffOptions.mode;
+      baseRef = diffOptions.baseRef;
+      headRef = diffOptions.headRef || gitContext.headSha;
+      
+      if (diffOptions.singleFile) {
+        const file = collectSingleFile(gitContext.repoRoot, diffOptions.singleFile);
+        if (!file) {
+          if (!options.quiet) {
+            console.log('');
+            console.log(`  File not found or binary: ${diffOptions.singleFile}`);
+            console.log('');
+          }
+          process.exit(0);
+        }
+        files = [file];
+      } else {
+        files = collectFiles(gitContext.repoRoot, diffOptions);
+      }
+      
+      if (files.length === 0) {
+        if (!options.quiet) {
+          console.log('');
+          console.log(renderNoFilesMessage('No changed files to analyze.'));
+          console.log('');
+        }
+        process.exit(0);
+      }
     }
     
     if (!options.quiet) {
       console.log(`  Repository: ${gitContext.owner}/${gitContext.name}`);
-      console.log(`  Mode: ${diffOptions.mode}, Files: ${files.length}`);
+      console.log(`  Mode: ${options.all ? 'all' : scanMode}, Files: ${files.length}`);
       console.log('');
     }
     
@@ -176,9 +248,9 @@ async function scan(options: ScanOptions): Promise<void> {
         remoteUrl: gitContext.remoteUrl,
       },
       scan: {
-        mode: diffOptions.mode,
-        baseRef: diffOptions.baseRef,
-        headRef: diffOptions.headRef || gitContext.headSha,
+        mode: scanMode,
+        baseRef,
+        headRef,
       },
       git: {
         branch: gitContext.branch,
@@ -222,7 +294,7 @@ async function scan(options: ScanOptions): Promise<void> {
     } else if (!options.quiet && output) {
       console.log(output);
     } else if (!options.quiet && response.decision === 'pass' && response.findings.length === 0) {
-      console.log('  ✓ No cost findings detected.');
+      console.log(renderPassMessage());
       console.log('');
     }
     
@@ -261,6 +333,7 @@ async function scan(options: ScanOptions): Promise<void> {
 export function createScanCommand(): Command {
   return new Command('scan')
     .description('Analyze local changes for cost impact')
+    .option('--all', 'Scan all files in the repository (not just changes)')
     .option('--staged', 'Analyze staged changes only')
     .option('--commit <sha>', 'Analyze a specific commit')
     .option('--range [base..head]', 'Analyze a commit range (default: origin/main..HEAD)')
@@ -269,6 +342,6 @@ export function createScanCommand(): Command {
     .option('--out <file>', 'Write output to file')
     .option('--verbose', 'Show full output even when clean')
     .option('--warn', 'Show output when warnings are present')
-    .option('--quiet', 'Deprecated: use default silent behavior')
+    .option('--quiet', 'Suppress all output (for scripts)')
     .action(scan);
 }
