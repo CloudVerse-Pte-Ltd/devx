@@ -7,7 +7,7 @@ import { isAuthenticated } from '../config/store';
 function requireAuth(): void {
   if (!isAuthenticated()) {
     console.log('');
-    console.log('CloudVerse DevX CLI');
+    console.log('CloudVerse DevX CLI — Hooks');
     console.log('To continue, authenticate this device.');
     console.log('');
     console.log('Run:');
@@ -50,10 +50,10 @@ ${HOOK_MARKER_END}`;
 
 function getGitHooksDir(): string {
   try {
-    const gitDir = execSync('git rev-parse --git-dir', { encoding: 'utf-8' }).trim();
+    const gitDir = execSync('git rev-parse --git-dir 2>/dev/null', { encoding: 'utf-8' }).trim();
     return path.join(gitDir, 'hooks');
   } catch {
-    throw new Error('Not in a git repository');
+    throw new Error('Not in a git repository. Git hooks can only be installed inside a git repository.');
   }
 }
 
