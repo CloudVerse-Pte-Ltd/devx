@@ -37,6 +37,6 @@ jobs:
           echo "Version verified: $PACKAGE_VERSION"
 
       - name: Publish to npm
-        run: npm publish --provenance --access public
+        run: npm publish --provenance --access public --no-otp
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
