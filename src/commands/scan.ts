@@ -110,6 +110,11 @@ async function scan(options: ScanOptions): Promise<void> {
   }
   
   try {
+    if (!options.quiet) {
+      console.log('');
+      console.log('CloudVerse DevX — Scanning...');
+    }
+    
     const gitContext = resolveGitContext();
     validateGitContext(gitContext);
     
@@ -144,13 +149,18 @@ async function scan(options: ScanOptions): Promise<void> {
     }
     
     if (files.length === 0) {
+      if (!options.quiet) {
+        console.log('');
+        console.log('  ✓ No changed files to analyze.');
+        console.log('');
+      }
       process.exit(0);
     }
     
-    if (options.verbose) {
+    if (!options.quiet) {
+      console.log(`  Repository: ${gitContext.owner}/${gitContext.name}`);
+      console.log(`  Mode: ${diffOptions.mode}, Files: ${files.length}`);
       console.log('');
-      console.log(`Scanning ${gitContext.owner}/${gitContext.name} (${diffOptions.mode} mode)...`);
-      console.log(`Found ${files.length} file(s) to analyze...`);
     }
     
     const config = getConfig();
@@ -182,11 +192,6 @@ async function scan(options: ScanOptions): Promise<void> {
       client: getClientInfo(),
     });
     
-    const shouldPrintToConsole = 
-      options.verbose || 
-      response.decision === 'block' ||
-      (options.warn && hasNonAdvisoryFindings(response));
-    
     let output = '';
     
     if (options.format === 'json') {
@@ -198,7 +203,7 @@ async function scan(options: ScanOptions): Promise<void> {
         output = renderTable(response);
       } else if (response.decision === 'block') {
         output = renderBlockMessage(response);
-      } else if (options.warn && hasNonAdvisoryFindings(response)) {
+      } else if (response.decision === 'warn' || hasNonAdvisoryFindings(response)) {
         output = renderWarnMessage(response);
       }
     }
@@ -211,13 +216,12 @@ async function scan(options: ScanOptions): Promise<void> {
       } else {
         fs.writeFileSync(options.out, renderPlain(response), 'utf-8');
       }
-      if (options.verbose) {
-        console.log(`Output written to: ${options.out}`);
+      if (!options.quiet) {
+        console.log(`  Output written to: ${options.out}`);
       }
-    } else if (shouldPrintToConsole && output) {
+    } else if (!options.quiet && output) {
       console.log(output);
     } else if (!options.quiet && response.decision === 'pass' && response.findings.length === 0) {
-      console.log('');
       console.log('  ✓ No cost findings detected.');
       console.log('');
     }
