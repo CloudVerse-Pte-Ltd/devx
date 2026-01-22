@@ -1,6 +1,6 @@
 {
   "name": "@cloudverse/devx",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "CloudVerse DevX CLI - Local cost analysis for developers",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -34,12 +34,14 @@
   "bugs": {
     "url": "https://github.com/cloudverse-ai/devx/issues"
   },
-  "devDependencies": {
-    "@types/node": "^20.19.30",
+  "dependencies": {
     "chalk": "^4.1.2",
     "commander": "^12.1.0",
     "open": "^8.4.2",
-    "ora": "^5.4.1",
+    "ora": "^5.4.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.30",
     "typescript": "^5.9.3"
   },
   "engines": {
