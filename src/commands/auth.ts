@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { getConfig, saveConfig, clearConfig, isAuthenticated, getMaskedToken } from '../config/store';
 import { startDeviceAuth, pollDeviceAuth, ApiError } from '../api/client';
+import open from 'open';
 
 const POLL_INTERVAL_MS = 5000;
 
@@ -19,6 +20,14 @@ async function login(): Promise<void> {
     console.log('1) Open this URL in your browser:');
     console.log(`   ${deviceAuth.verificationUrl}`);
     console.log('');
+
+    // Attempt to open the browser automatically
+    try {
+      await open(deviceAuth.verificationUrl);
+    } catch (err) {
+      // Ignore errors if browser can't be opened (e.g. headless environment)
+    }
+
     console.log('2) Enter this code:');
     console.log(`   ${deviceAuth.userCode}`);
     console.log('');
