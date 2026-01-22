@@ -1,167 +1,81 @@
-**CloudVerse DevX CLI**
+# CloudVerse DevX CLI
 
-CloudVerse DevX is a developer-first cost impact analyzer that runs in your local workflow and surfaces cloud cost risks before code or infrastructure is merged.
+Cloud cost issues are introduced through code and IaC changes. DevX surfaces cost impact locally and in pull requests.
 
-It integrates with GitHub, GitLab, and Azure DevOps to show cost impact directly in pull requests — and can also be run locally from your terminal.
+## Install (recommended)
 
-**What DevX Does**
-
-DevX analyzes:
-
-Application code (loops, retries, API fan-out, logging)
-
-Infrastructure-as-Code (Terraform, CloudFormation, Kubernetes, Serverless)
-
-It detects patterns that commonly cause:
-
-Unexpected cloud spend
-
-Runaway runtime costs
-
-Missing cost controls or metadata
-
-DevX is not a billing dashboard.
-It is an engineering-time guardrail.
-
-How It Works (High Level)
-
-DevX CLI runs locally on your machine
-
-It analyzes changed files (code or IaC)
-
-Findings are securely sent to CloudVerse for evaluation
-
-Results appear:
-
-In your terminal (local scan)
-
-In pull requests (CI / PR checks)
-
-The CLI itself is intentionally thin.
-All policy evaluation and cost modeling happens remotely.
-
-Installation
-macOS / Linux
-curl -fsSL https://devx.cloudverse.ai/install.sh | sh
-
-Windows (PowerShell)
-iwr https://devx.cloudverse.ai/install.ps1 -useb | iex
-
-npm (optional)
+```bash
 npm install -g @cloudverse/devx
+```
 
+## Authenticate
 
-Verify installation:
+```bash
+devx auth login
+```
 
-devx --version
+## Common usage
 
-First-Run Authentication (Device Auth)
-
-On first run:
-
-devx
-
-
-You’ll see:
-
-Authenticate this device to continue.
-
-Open:
-https://devx.cloudverse.ai/device
-
-Enter code:
-ABCD-EFGH
-
-
-No credentials are entered in the terminal
-
-Each device is registered and visible to org admins
-
-Devices can be revoked at any time from the DevX portal
-
-Common Commands
+```bash
 devx scan
-
-
-Run a local cost impact scan on changed files.
-
 devx scan --staged
+devx scan --iac
+```
 
+## Hooks
 
-Scan staged changes before commit.
+```bash
+devx hooks install
+devx hooks status
+git commit --no-verify
+```
 
-devx install hook
+## Security
 
+- No cloud credentials required
+- No full repo uploads
+- Only changed files are analyzed
 
-Install an optional pre-commit hook (warn-only by default).
+### Verification
 
-devx doctor
+Every release includes checksums and GPG signatures:
 
+```bash
+shasum -a 256 <artifact>
+gpg --verify SHA256SUMS.sig SHA256SUMS
+```
 
-Show device status, org, auth state, and what data is sent.
+See [SECURITY.md](./SECURITY.md) for details.
 
-What Data Is Sent
+## Exit Codes
 
-DevX is designed to minimize data collection.
+| Code | Meaning |
+|------|---------|
+| 0 | Clean (no findings, or advisory-only) |
+| 1 | Warnings present (non-blocking) |
+| 2 | Blocked by policy |
+| 3 | CLI / auth / backend error |
 
-Sent:
+## Commands
 
-File paths
+```bash
+devx auth login           # Authenticate via browser
+devx auth status          # Check authentication status
+devx auth logout          # Clear credentials
+devx scan                 # Analyze working directory changes
+devx scan --staged        # Analyze staged changes only
+devx hooks install        # Install pre-commit/pre-push hooks
+devx hooks uninstall      # Remove DevX hooks
+devx hooks status         # Show hook installation status
+devx explain <ruleId>     # Get rule explanation
+devx doctor               # Run diagnostics
+```
 
-Rule matches / findings
+## Distribution
 
-Aggregated metadata needed for analysis
+Official binaries and signatures are available at:
+https://github.com/CloudVerse-Pte-Ltd/devx/releases
 
-Not sent:
+## License
 
-Secrets
-
-Credentials
-
-Environment variables
-
-Full repositories
-
-Git history beyond the current change set
-
-You can inspect this at any time:
-
-devx doctor
-
-Security & Trust
-
-Source code is fully open-source
-
-Releases are signed
-
-Checksums are published with every release
-
-SBOMs are provided for enterprise review
-
-See SECURITY.md
- for details.
-
-CI / Pull Request Integration
-
-Once installed, DevX automatically posts cost impact checks to:
-
-GitHub Pull Requests
-
-GitLab Merge Requests
-
-Azure DevOps PRs
-
-Local CLI output is intentionally aligned word-for-word with PR comments to avoid confusion.
-
-Philosophy
-
-DevX is built on a simple belief:
-
-Cloud cost issues are introduced through code and IaC — not discovered in dashboards.
-
-The goal is not perfect prediction.
-The goal is better engineering decisions at the moment of change.
-
-License
-
-Apache 2.0
+MIT
