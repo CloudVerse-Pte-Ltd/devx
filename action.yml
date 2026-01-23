@@ -1,0 +1,42 @@
+name: 'CloudVerse DevX Cost Analysis'
+description: 'Analyze pull request changes for cloud cost impact'
+inputs:
+  api-token:
+    description: 'DevX CLI API Token'
+    required: true
+  org-id:
+    description: 'Organization ID'
+    required: true
+  block-on:
+    description: 'Findings severity to block on (high, medium, low)'
+    default: 'high'
+    required: false
+runs:
+  using: 'composite'
+  steps:
+    - name: Install DevX CLI
+      run: npm install -g @cloudverse/devx
+      shell: bash
+
+    - name: Run DevX Scan
+      id: devx-scan
+      run: |
+        export DEVX_TOKEN="${{ inputs.api-token }}"
+        export DEVX_ORG_ID="${{ inputs.org-id }}"
+        
+        # Determine scan range for PRs
+        if [ "${{ github.event_name }}" == "pull_request" ]; then
+          RANGE="origin/${{ github.base_ref }}..HEAD"
+          echo "Analyzing PR changes: $RANGE"
+          devx scan --range "$RANGE" --sync --format sarif --out devx-results.sarif
+        else
+          echo "Running full scan"
+          devx scan --all --sync --format sarif --out devx-results.sarif
+        fi
+      shell: bash
+
+    - name: Upload SARIF results
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: devx-results.sarif
+      if: always()

@@ -1,0 +1,185 @@
+name: Release CLI
+
+on:
+  push:
+    tags:
+      - 'cli-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: packages/cli
+        run: npm ci
+
+      - name: Build CLI
+        working-directory: packages/cli
+        run: npm run build
+
+      - name: Package binary
+        working-directory: packages/cli
+        run: |
+          npx pkg dist/index.js --target node18-linux-x64 --output devx-linux-x64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: devx-linux-x64
+          path: packages/cli/devx-linux-x64
+
+  build-macos:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        include:
+          - arch: x64
+            target: darwin-x64
+          - arch: arm64
+            target: darwin-arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: packages/cli
+        run: npm ci
+
+      - name: Build CLI
+        working-directory: packages/cli
+        run: npm run build
+
+      - name: Package binary
+        working-directory: packages/cli
+        run: |
+          npx pkg dist/index.js --target node18-${{ matrix.target }} --output devx-${{ matrix.target }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: devx-${{ matrix.target }}
+          path: packages/cli/devx-${{ matrix.target }}
+
+  release:
+    needs: [build-linux, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          cp artifacts/devx-linux-x64/devx-linux-x64 release/
+          cp artifacts/devx-darwin-x64/devx-darwin-x64 release/
+          cp artifacts/devx-darwin-arm64/devx-darwin-arm64 release/
+          chmod +x release/*
+
+      - name: Generate SHA256 checksums
+        working-directory: release
+        run: |
+          sha256sum devx-* > SHA256SUMS
+
+      - name: Import GPG key
+        if: env.DEVX_GPG_PRIVATE_KEY != ''
+        env:
+          DEVX_GPG_PRIVATE_KEY: ${{ secrets.DEVX_GPG_PRIVATE_KEY }}
+          DEVX_GPG_PASSPHRASE: ${{ secrets.DEVX_GPG_PASSPHRASE }}
+        run: |
+          echo "$DEVX_GPG_PRIVATE_KEY" | base64 -d | gpg --batch --import
+          echo "GPG key imported"
+
+      - name: Sign checksums
+        if: env.DEVX_GPG_PRIVATE_KEY != ''
+        working-directory: release
+        env:
+          DEVX_GPG_PASSPHRASE: ${{ secrets.DEVX_GPG_PASSPHRASE }}
+        run: |
+          echo "$DEVX_GPG_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 --detach-sign --armor SHA256SUMS
+          mv SHA256SUMS.asc SHA256SUMS.sig
+
+      - name: Generate SBOM
+        working-directory: packages/cli
+        run: |
+          npm install -g @cyclonedx/cyclonedx-npm
+          cyclonedx-npm --output-format JSON --output-file ../../release/sbom.cdx.json
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            release/devx-linux-x64
+            release/devx-darwin-x64
+            release/devx-darwin-arm64
+            release/SHA256SUMS
+            release/SHA256SUMS.sig
+            release/sbom.cdx.json
+          generate_release_notes: true
+          body: |
+            ## CloudVerse DevX CLI ${{ github.ref_name }}
+
+            ### Installation
+
+            **macOS (Apple Silicon):**
+            ```bash
+            curl -L https://github.com/CloudVerse-Pte-Ltd/devx/releases/download/${{ github.ref_name }}/devx-darwin-arm64 -o devx
+            chmod +x devx && sudo mv devx /usr/local/bin/
+            ```
+
+            **macOS (Intel):**
+            ```bash
+            curl -L https://github.com/CloudVerse-Pte-Ltd/devx/releases/download/${{ github.ref_name }}/devx-darwin-x64 -o devx
+            chmod +x devx && sudo mv devx /usr/local/bin/
+            ```
+
+            **Linux:**
+            ```bash
+            curl -L https://github.com/CloudVerse-Pte-Ltd/devx/releases/download/${{ github.ref_name }}/devx-linux-x64 -o devx
+            chmod +x devx && sudo mv devx /usr/local/bin/
+            ```
+
+            **npm:**
+            ```bash
+            npm install -g @cloudverse/devx
+            ```
+
+            ### Verification
+
+            ```bash
+            # Download checksums
+            curl -L https://github.com/CloudVerse-Pte-Ltd/devx/releases/download/${{ github.ref_name }}/SHA256SUMS -o SHA256SUMS
+
+            # Verify checksum
+            sha256sum -c SHA256SUMS --ignore-missing
+
+            # Verify signature (optional)
+            curl -L https://github.com/CloudVerse-Pte-Ltd/devx/releases/download/${{ github.ref_name }}/SHA256SUMS.sig -o SHA256SUMS.sig
+            gpg --verify SHA256SUMS.sig SHA256SUMS
+            ```
+
+            ### SBOM
+
+            Software Bill of Materials available: `sbom.cdx.json`

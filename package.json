@@ -1,0 +1,60 @@
+{
+  "name": "@cloudverse/devx",
+  "version": "3.0.0",
+  "description": "CloudVerse DevX CLI - Local cost analysis for developers",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "devx": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "devx",
+    "cloudverse",
+    "cost",
+    "finops",
+    "cli",
+    "developer-tools",
+    "infrastructure-as-code",
+    "terraform"
+  ],
+  "author": "CloudVerse",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CloudVerse-Pte-Ltd/devx.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://devx.cloudverse.ai",
+  "bugs": {
+    "url": "https://github.com/cloudverse-ai/devx/issues"
+  },
+  "dependencies": {
+    "chalk": "^4.1.2",
+    "commander": "^12.1.0",
+    "open": "^8.4.2",
+    "ora": "^5.4.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.30",
+    "typescript": "^5.9.3",
+    "vitest": "^1.6.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "SECURITY.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
