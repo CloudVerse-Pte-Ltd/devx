@@ -83,6 +83,24 @@ const TOOLS: McpTool[] = [
       properties: {},
     },
   },
+  {
+    name: 'costlint_get_findings',
+    description: 'Get cached findings from the current session. Returns all findings from scans performed in this MCP session, filtered by severity if specified.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        severity: {
+          type: 'string',
+          description: 'Filter findings by severity (high, medium, low)',
+          enum: ['high', 'medium', 'low'],
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum number of findings to return (default: 50)',
+        },
+      },
+    },
+  },
 ];
 
 const RESOURCES: McpResource[] = [
@@ -112,8 +130,6 @@ function getProjectRoot(): string {
 const PROJECT_ROOT = getProjectRoot();
 
 async function handleCostlintScanProject(): Promise<any> {
-  // In a real implementation, this would trigger a background scan
-  // For now, we simulate project-wide context by returning current workspace status
   return {
     content: [{
       type: 'text',
@@ -123,6 +139,52 @@ async function handleCostlintScanProject(): Promise<any> {
         message: 'Project scan capability initialized. Use devx://project-summary resource for latest findings.',
       }, null, 2)
     }]
+  };
+}
+
+async function handleCostlintGetFindings(args: Record<string, unknown>): Promise<McpToolResult> {
+  const severity = args.severity as string | undefined;
+  const limit = (args.limit as number) || 50;
+
+  const allFindings: any[] = [];
+  
+  for (const [filename, scanResult] of findingsCache.entries()) {
+    if (scanResult.findings && Array.isArray(scanResult.findings)) {
+      for (const finding of scanResult.findings) {
+        allFindings.push({
+          ...finding,
+          file: finding.file || filename,
+        });
+      }
+    }
+  }
+
+  let filtered = allFindings;
+  
+  if (severity) {
+    filtered = filtered.filter(f => f.severity === severity);
+  }
+
+  filtered = filtered.slice(0, limit);
+
+  const summary = {
+    projectRoot: PROJECT_ROOT,
+    totalCached: findingsCache.size,
+    totalFindings: allFindings.length,
+    returned: filtered.length,
+    bySeverity: {
+      high: allFindings.filter(f => f.severity === 'high').length,
+      medium: allFindings.filter(f => f.severity === 'medium').length,
+      low: allFindings.filter(f => f.severity === 'low').length,
+    },
+    tip: 'Findings are cached from costlint_scan calls in this session. Scan more files to populate the cache.',
+  };
+
+  return {
+    content: [{
+      type: 'text',
+      text: JSON.stringify({ summary, findings: filtered }, null, 2),
+    }],
   };
 }
 
@@ -418,6 +480,8 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
           result = await handleCostlintExplain(toolArgs);
         } else if (toolName === 'costlint_scan_project') {
           result = await handleCostlintScanProject();
+        } else if (toolName === 'costlint_get_findings') {
+          result = await handleCostlintGetFindings(toolArgs);
         } else {
           result = {
             content: [{ type: 'text', text: `Unknown tool: ${toolName}` }],
