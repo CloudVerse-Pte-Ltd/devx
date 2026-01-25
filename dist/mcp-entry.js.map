@@ -1,1 +1,0 @@
-{"version":3,"file":"mcp-entry.js","sourceRoot":"","sources":["../src/mcp-entry.ts"],"names":[],"mappings":";;;AAEA,yCAA8C;AAE9C,IAAA,uBAAc,GAAE,CAAC,KAAK,CAAC,CAAC,KAAK,EAAE,EAAE;IAC/B,OAAO,CAAC,MAAM,CAAC,KAAK,CAAC,+BAA+B,KAAK,CAAC,OAAO,IAAI,CAAC,CAAC;IACvE,OAAO,CAAC,IAAI,CAAC,CAAC,CAAC,CAAC;AAClB,CAAC,CAAC,CAAC"}
