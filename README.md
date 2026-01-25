@@ -69,6 +69,51 @@ devx hooks uninstall      # Remove DevX hooks
 devx hooks status         # Show hook installation status
 devx explain <ruleId>     # Get rule explanation
 devx doctor               # Run diagnostics
+devx mcp                  # Start MCP server for AI agents
+```
+
+## MCP Server (Model Context Protocol)
+
+DevX includes an MCP server for integration with AI agents like Replit Agent, Claude, and other MCP-compatible tools.
+
+### Starting the MCP Server
+
+```bash
+# As a command
+devx mcp
+
+# Or via standalone binary
+devx-mcp
+```
+
+### Replit Agent Configuration
+
+Add to your MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "devx-costlint": {
+      "command": "devx-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `costlint_scan` | Analyze code for cloud cost optimization opportunities |
+| `costlint_explain` | Get detailed explanation of a CostLint rule |
+
+### Example Usage
+
+The MCP server speaks JSON-RPC over stdio:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"costlint_scan","arguments":{"code":"const client = new S3Client({});","language":"typescript"}}}
 ```
 
 ## Distribution

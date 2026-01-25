@@ -8,6 +8,7 @@ import { createExplainCommand } from './commands/explain';
 import { createDoctorCommand } from './commands/doctor';
 import { createAcceptCommand } from './commands/accept';
 import { createRebuttalCommand } from './commands/rebuttal';
+import { createMcpCommand } from './commands/mcp';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -38,5 +39,6 @@ program.addCommand(createExplainCommand());
 program.addCommand(createDoctorCommand());
 program.addCommand(createAcceptCommand());
 program.addCommand(createRebuttalCommand());
+program.addCommand(createMcpCommand());
 
 program.parse();

@@ -1,11 +1,12 @@
 {
   "name": "@cloudverse/devx",
-  "version": "3.0.0",
-  "description": "CloudVerse DevX CLI - Local cost analysis for developers",
+  "version": "3.1.0",
+  "description": "CloudVerse DevX CLI - Local cost analysis for developers with MCP server support",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "devx": "./dist/index.js"
+    "devx": "./dist/index.js",
+    "devx-mcp": "./dist/mcp-entry.js"
   },
   "scripts": {
     "build": "tsc",
@@ -21,7 +22,11 @@
     "cli",
     "developer-tools",
     "infrastructure-as-code",
-    "terraform"
+    "terraform",
+    "mcp",
+    "model-context-protocol",
+    "ai-tools",
+    "replit-agent"
   ],
   "author": "CloudVerse",
   "license": "MIT",
