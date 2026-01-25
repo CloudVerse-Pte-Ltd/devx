@@ -111,18 +111,6 @@ export function toSarif(response: AnalyzeResponse): object {
     results: response.findings.map(findingToResult),
   };
   
-  if (!fs.existsSync('devx-results.sarif')) {
-    try {
-      fs.writeFileSync('devx-results.sarif', JSON.stringify({
-        $schema: 'https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json',
-        version: '2.1.0',
-        runs: [run],
-      }, null, 2));
-    } catch (e) {
-      // Ignore write errors in CLI mode
-    }
-  }
-  
   return {
     $schema: 'https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json',
     version: '2.1.0',

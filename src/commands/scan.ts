@@ -231,7 +231,19 @@ function outputResults(response: AnalyzeResponse, options: ScanOptions, mode: 'p
     return;
   }
   if (options.format === 'sarif') {
-    console.log(renderSarif(response));
+    const sarifOutput = renderSarif(response);
+    if (options.out) {
+      try {
+        fs.writeFileSync(options.out, sarifOutput);
+        if (!options.quiet) {
+          console.log(`  ✓ Findings written to: ${options.out}`);
+        }
+      } catch (e: any) {
+        console.error(`  Error: Failed to write output to ${options.out}: ${e.message}`);
+      }
+    } else {
+      console.log(sarifOutput);
+    }
     return;
   }
 
