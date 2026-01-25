@@ -64,12 +64,41 @@ export function clearConfig(): void {
 }
 
 export function isAuthenticated(): boolean {
+  // Check environment variables first (for CI/CD)
+  if (process.env.DEVX_TOKEN && process.env.DEVX_ORG_ID) {
+    return true;
+  }
+  // Fall back to stored config
   const config = getConfig();
   return !!(config.accessToken && config.orgId && config.userId);
 }
 
 export function getAccessToken(): string | undefined {
+  // Check environment variable first (for CI/CD)
+  if (process.env.DEVX_TOKEN) {
+    return process.env.DEVX_TOKEN;
+  }
   return getConfig().accessToken;
+}
+
+export function getOrgId(): string | undefined {
+  // Check environment variable first (for CI/CD)
+  if (process.env.DEVX_ORG_ID) {
+    return process.env.DEVX_ORG_ID;
+  }
+  return getConfig().orgId;
+}
+
+export function getUserId(): string | undefined {
+  // Check environment variable first (for CI/CD)
+  if (process.env.DEVX_USER_ID) {
+    return process.env.DEVX_USER_ID;
+  }
+  // For CI/CD with token-only auth, use a placeholder that the server will recognize
+  if (process.env.DEVX_TOKEN) {
+    return 'ci-service-account';
+  }
+  return getConfig().userId;
 }
 
 export function getMaskedToken(token: string | undefined): string {

@@ -14,29 +14,46 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
     - name: Install DevX CLI
-      run: npm install -g @cloudverse/devx
+      run: npm install -g @cloudverse/devx@latest
       shell: bash
 
     - name: Run DevX Scan
       id: devx-scan
+      env:
+        DEVX_TOKEN: ${{ inputs.api-token }}
+        DEVX_ORG_ID: ${{ inputs.org-id }}
       run: |
-        export DEVX_TOKEN="${{ inputs.api-token }}"
-        export DEVX_ORG_ID="${{ inputs.org-id }}"
+        echo "DevX Cost Analysis"
+        echo "=================="
         
         # Determine scan range for PRs
         if [ "${{ github.event_name }}" == "pull_request" ]; then
           RANGE="origin/${{ github.base_ref }}..HEAD"
           echo "Analyzing PR changes: $RANGE"
-          devx scan --range "$RANGE" --sync --format sarif --out devx-results.sarif
+          devx scan --range "$RANGE" --sync --format sarif --out devx-results.sarif || EXIT_CODE=$?
         else
           echo "Running full scan"
-          devx scan --all --sync --format sarif --out devx-results.sarif
+          devx scan --all --sync --format sarif --out devx-results.sarif || EXIT_CODE=$?
         fi
+        
+        # Create empty SARIF if scan failed before creating output
+        if [ ! -f "devx-results.sarif" ]; then
+          echo '{"version":"2.1.0","$schema":"https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json","runs":[{"tool":{"driver":{"name":"CloudVerse DevX","version":"1.0.0","informationUri":"https://devx.cloudverse.ai","rules":[]}},"results":[]}]}' > devx-results.sarif
+          echo "Created empty SARIF file (scan did not produce output)"
+        fi
+        
+        # Exit with DevX exit code to enforce policy gating (0=pass, 1=warn, 2=block, 3=error)
+        exit ${EXIT_CODE:-0}
       shell: bash
 
     - name: Upload SARIF results
-      uses: github/codeql-action/upload-sarif@v3
+      uses: github/codeql-action/upload-sarif@v4
       with:
         sarif_file: devx-results.sarif
       if: always()

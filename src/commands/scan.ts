@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import * as fs from 'fs';
 import { execSync, spawn } from 'child_process';
-import { getConfig, isAuthenticated } from '../config/store';
+import { getConfig, isAuthenticated, getOrgId, getUserId } from '../config/store';
 import { resolveGitContext, validateGitContext } from '../git/resolve';
 import { collectFiles, getScanModeFromOptions, collectSingleFile, collectAllFiles, FileEntry } from '../git/diff';
 import { analyze, getClientInfo, ApiError, AnalyzeResponse, Finding } from '../api/client';
@@ -408,8 +408,8 @@ async function scan(options: ScanOptions): Promise<void> {
         const config = getConfig();
         
         const analyzePromise = analyze({
-          orgId: config.orgId!,
-          userId: config.userId!,
+          orgId: getOrgId()!,
+          userId: getUserId()!,
           machineId: config.machineId,
           repo: {
             provider: gitContext.provider,
@@ -496,8 +496,8 @@ async function scan(options: ScanOptions): Promise<void> {
     const config = getConfig();
     
     const analyzePromise = analyze({
-      orgId: config.orgId!,
-      userId: config.userId!,
+      orgId: getOrgId()!,
+      userId: getUserId()!,
       machineId: config.machineId,
       repo: {
         provider: gitContext.provider,

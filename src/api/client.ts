@@ -3,7 +3,7 @@ import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
 import { URL } from 'url';
-import { getConfig, saveConfig } from '../config/store';
+import { getConfig, saveConfig, getAccessToken } from '../config/store';
 
 function getCliVersion(): string {
   try {
@@ -263,9 +263,12 @@ export async function pollDeviceAuth(deviceCode: string): Promise<DeviceAuthPoll
 }
 
 export async function analyze(payload: AnalyzeRequest): Promise<AnalyzeResponse> {
-  await refreshTokenIfNeeded();
+  // Skip refresh for CI/CD token-based auth
+  if (!process.env.DEVX_TOKEN) {
+    await refreshTokenIfNeeded();
+  }
   
-  const token = process.env.DEVX_TOKEN || getConfig().accessToken;
+  const token = getAccessToken();
   if (!token) {
     throw new ApiError('Not authenticated. Run: devx auth login', 401);
   }
@@ -276,8 +279,7 @@ export async function analyze(payload: AnalyzeRequest): Promise<AnalyzeResponse>
     if (e instanceof ApiError && e.statusCode === 401 && !process.env.DEVX_TOKEN) {
       const refreshed = await tryRefreshAndRetry();
       if (refreshed) {
-        const newConfig = getConfig();
-        return request<AnalyzeResponse>('POST', '/api/cli/analyze', payload, newConfig.accessToken);
+        return request<AnalyzeResponse>('POST', '/api/cli/analyze', payload, getAccessToken());
       }
     }
     throw e;
