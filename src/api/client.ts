@@ -265,15 +265,15 @@ export async function pollDeviceAuth(deviceCode: string): Promise<DeviceAuthPoll
 export async function analyze(payload: AnalyzeRequest): Promise<AnalyzeResponse> {
   await refreshTokenIfNeeded();
   
-  const config = getConfig();
-  if (!config.accessToken) {
+  const token = process.env.DEVX_TOKEN || getConfig().accessToken;
+  if (!token) {
     throw new ApiError('Not authenticated. Run: devx auth login', 401);
   }
 
   try {
-    return await request<AnalyzeResponse>('POST', '/api/cli/analyze', payload, config.accessToken);
+    return await request<AnalyzeResponse>('POST', '/api/cli/analyze', payload, token);
   } catch (e) {
-    if (e instanceof ApiError && e.statusCode === 401) {
+    if (e instanceof ApiError && e.statusCode === 401 && !process.env.DEVX_TOKEN) {
       const refreshed = await tryRefreshAndRetry();
       if (refreshed) {
         const newConfig = getConfig();

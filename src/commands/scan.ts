@@ -303,7 +303,7 @@ async function scan(options: ScanOptions): Promise<void> {
         commitSha: diffOptions.commitSha,
       });
       
-      if (!preflight.hasRelevantChanges) {
+      if (!preflight.hasRelevantChanges && !process.env.DEVX_TOKEN) {
         if (!options.quiet) {
           console.log(renderNoFilesMessage(preflight.reason || 'No relevant changes detected.'));
         }

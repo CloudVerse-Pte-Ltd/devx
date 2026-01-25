@@ -17,8 +17,8 @@ export interface DiffOptions {
   headRef?: string;
 }
 
-const MAX_FILES = 50;
-const MAX_PAYLOAD_BYTES = 2 * 1024 * 1024;
+const MAX_FILES = 1000;
+const MAX_PAYLOAD_BYTES = 10 * 1024 * 1024;
 
 function exec(cmd: string, cwd: string): string {
   try {
