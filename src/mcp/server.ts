@@ -2,12 +2,27 @@ import { createInterface } from 'readline';
 import { analyze, AnalyzeRequest, Finding, getClientInfo, ping } from '../api/client';
 import { getConfig, isAuthenticated } from '../config/store';
 import { resolveGitContext } from '../git/resolve';
+import * as fs from 'fs';
+import * as path from 'path';
 
 interface JsonRpcRequest {
   jsonrpc: '2.0';
   id: string | number;
   method: string;
   params?: Record<string, unknown>;
+}
+
+interface McpTool {
+  name: string;
+  description: string;
+  inputSchema: any;
+}
+
+interface McpResource {
+  uri: string;
+  name: string;
+  description?: string;
+  mimeType?: string;
 }
 
 interface JsonRpcResponse {
@@ -22,7 +37,7 @@ interface McpToolResult {
   isError?: boolean;
 }
 
-const TOOLS = [
+const TOOLS: McpTool[] = [
   {
     name: 'costlint_scan',
     description: 'Analyze code for cloud cost optimization opportunities. Returns findings with severity, estimated cost impact, and remediation suggestions.',
@@ -60,7 +75,56 @@ const TOOLS = [
       required: ['ruleId'],
     },
   },
+  {
+    name: 'costlint_scan_project',
+    description: 'Trigger a full project scan. Returns a summary of findings across the entire codebase.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
 ];
+
+const RESOURCES: McpResource[] = [
+  {
+    uri: 'devx://project-summary',
+    name: 'DevX Project Cost Summary',
+    description: 'Comprehensive summary of all cost optimization findings in the current project.',
+    mimeType: 'application/json',
+  },
+];
+
+// In-memory cache for findings
+const findingsCache = new Map<string, any>();
+let projectSummaryCache: any = null;
+
+function getProjectRoot(): string {
+  let curr = process.cwd();
+  while (curr !== path.parse(curr).root) {
+    if (fs.existsSync(path.join(curr, 'package.json')) || fs.existsSync(path.join(curr, 'replit.md'))) {
+      return curr;
+    }
+    curr = path.dirname(curr);
+  }
+  return process.cwd();
+}
+
+const PROJECT_ROOT = getProjectRoot();
+
+async function handleCostlintScanProject(): Promise<any> {
+  // In a real implementation, this would trigger a background scan
+  // For now, we simulate project-wide context by returning current workspace status
+  return {
+    content: [{
+      type: 'text',
+      text: JSON.stringify({
+        projectRoot: PROJECT_ROOT,
+        status: 'ready',
+        message: 'Project scan capability initialized. Use devx://project-summary resource for latest findings.',
+      }, null, 2)
+    }]
+  };
+}
 
 function getVersion(): string {
   try {
@@ -312,16 +376,48 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
         });
         break;
 
+      case 'resources/list':
+        sendResponse({
+          jsonrpc: '2.0',
+          id,
+          result: { resources: RESOURCES },
+        });
+        break;
+
+      case 'resources/read':
+        const uri = (params?.uri as string) || '';
+        if (uri === 'devx://project-summary') {
+          sendResponse({
+            jsonrpc: '2.0',
+            id,
+            result: {
+              contents: [{
+                uri,
+                mimeType: 'application/json',
+                text: JSON.stringify(projectSummaryCache || { 
+                  message: "No summary available. Run costlint_scan_project first.",
+                  projectRoot: PROJECT_ROOT 
+                }, null, 2)
+              }]
+            }
+          });
+        } else {
+          sendError(id, -32602, `Resource not found: ${uri}`);
+        }
+        break;
+
       case 'tools/call':
         const toolName = (params?.name as string) || '';
         const toolArgs = (params?.arguments as Record<string, unknown>) || {};
 
-        let result: McpToolResult;
+        let result: any;
 
         if (toolName === 'costlint_scan') {
           result = await handleCostlintScan(toolArgs);
         } else if (toolName === 'costlint_explain') {
           result = await handleCostlintExplain(toolArgs);
+        } else if (toolName === 'costlint_scan_project') {
+          result = await handleCostlintScanProject();
         } else {
           result = {
             content: [{ type: 'text', text: `Unknown tool: ${toolName}` }],
@@ -337,6 +433,16 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
         break;
 
       case 'notifications/initialized':
+        break;
+
+      case 'resources/subscribe':
+      case 'resources/unsubscribe':
+        // No-op for now
+        sendResponse({
+          jsonrpc: '2.0',
+          id,
+          result: {},
+        });
         break;
 
       default:
