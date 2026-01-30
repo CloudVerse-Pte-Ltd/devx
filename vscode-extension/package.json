@@ -1,0 +1,122 @@
+{
+  "name": "cloudverse-devx",
+  "displayName": "CloudVerse DevX",
+  "description": "Real-time cloud cost insights, project-wide analysis, and cost gating in your IDE",
+  "version": "1.1.0",
+  "publisher": "CloudVerse-ai-developer-finops",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CloudVerse-Pte-Ltd/devx"
+  },
+  "bugs": {
+    "url": "https://github.com/CloudVerse-Pte-Ltd/devx/issues"
+  },
+  "homepage": "https://devx.cloudverse.ai",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Linters",
+    "Other"
+  ],
+  "keywords": [
+    "cost",
+    "finops",
+    "cloud",
+    "optimization",
+    "terraform",
+    "infrastructure",
+    "devops"
+  ],
+  "icon": "icon.png",
+  "galleryBanner": {
+    "color": "#1a1a2e",
+    "theme": "dark"
+  },
+  "activationEvents": [
+    "onLanguage:typescript",
+    "onLanguage:javascript",
+    "onLanguage:python",
+    "onLanguage:go",
+    "onLanguage:terraform",
+    "onLanguage:yaml",
+    "onLanguage:json",
+    "onLanguage:java",
+    "onLanguage:dockerfile",
+    "workspaceContains:**/*.tf",
+    "workspaceContains:**/*.py",
+    "workspaceContains:**/*.ts"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "devx.scan",
+        "title": "DevX: Scan Current File",
+        "icon": "$(search)"
+      },
+      {
+        "command": "devx.scanProject",
+        "title": "DevX: Scan Entire Project",
+        "icon": "$(folder)"
+      },
+      {
+        "command": "devx.showProjectSummary",
+        "title": "DevX: Show Project Cost Summary",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "devx.refreshSummary",
+        "title": "DevX: Refresh Project Summary",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "devx.scan",
+          "group": "navigation",
+          "when": "editorLangId =~ /typescript|javascript|python|go|terraform|yaml|json|java/"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "devx.scanProject",
+          "group": "devx"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "DevX",
+      "properties": {
+        "devx.scanOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically scan files for cost issues on save"
+        },
+        "devx.showStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show DevX status in the status bar"
+        },
+        "devx.autoProjectScan": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically scan the project on workspace open"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.75.0",
+    "@vscode/vsce": "^2.19.0",
+    "typescript": "^4.9.5"
+  }
+}

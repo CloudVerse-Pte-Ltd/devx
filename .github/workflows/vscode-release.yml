@@ -1,0 +1,41 @@
+name: Release VSCode Extension
+
+on:
+  push:
+    tags:
+      - 'vscode-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: packages/vscode-extension
+        run: npm ci
+
+      - name: Build and Package
+        working-directory: packages/vscode-extension
+        run: |
+          npm run compile
+          npx vsce package -o devx-extension-${{ github.ref_name }}.vsix
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: packages/vscode-extension/*.vsix
+          generate_release_notes: true
+          body: |
+            ## CloudVerse DevX VSCode Extension ${{ github.ref_name }}
+            
+            Install this extension by downloading the .vsix file and running:
+            `code --install-extension devx-extension-${{ github.ref_name }}.vsix`
