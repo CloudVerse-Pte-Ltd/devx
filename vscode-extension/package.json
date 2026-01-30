@@ -2,7 +2,7 @@
   "name": "cloudverse-devx",
   "displayName": "CloudVerse DevX",
   "description": "Real-time cloud cost insights, project-wide analysis, and cost gating in your IDE",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "publisher": "CloudVerse-ai-developer-finops",
   "repository": {
     "type": "git",
