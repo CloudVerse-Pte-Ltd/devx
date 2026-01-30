@@ -101,6 +101,19 @@ const TOOLS: McpTool[] = [
       },
     },
   },
+  {
+    name: 'costlint_understand',
+    description: 'Describe the repository context and project structure to understand what the repo is.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        deep: {
+          type: 'boolean',
+          description: 'Include file tree paths for deeper analysis',
+        },
+      },
+    },
+  },
 ];
 
 const RESOURCES: McpResource[] = [
@@ -411,6 +424,23 @@ function getDefaultFilename(language: string): string {
   return extensions[language.toLowerCase()] || 'code.txt';
 }
 
+async function handleCostlintUnderstand(args: Record<string, unknown>): Promise<McpToolResult> {
+  const deep = !!args.deep;
+  try {
+    // In MCP mode, we execute the CLI command to leverage existing logic
+    const { execSync } = require('child_process');
+    const output = execSync(`devx context --json ${deep ? '--deep' : ''}`, { encoding: 'utf-8' });
+    return {
+      content: [{ type: 'text', text: output }]
+    };
+  } catch (error: any) {
+    return {
+      content: [{ type: 'text', text: `Error: ${error.message}` }],
+      isError: true
+    };
+  }
+}
+
 async function handleRequest(request: JsonRpcRequest): Promise<void> {
   const { id, method, params } = request;
 
@@ -482,6 +512,8 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
           result = await handleCostlintScanProject();
         } else if (toolName === 'costlint_get_findings') {
           result = await handleCostlintGetFindings(toolArgs);
+        } else if (toolName === 'costlint_understand') {
+          result = await handleCostlintUnderstand(toolArgs);
         } else {
           result = {
             content: [{ type: 'text', text: `Unknown tool: ${toolName}` }],

@@ -1,4 +1,4 @@
-import { AnalyzeResponse, Finding } from '../api/client';
+import { AnalyzeResponse, Finding, CostAmplifier } from '../api/client';
 
 const COLORS = {
   reset: '\x1b[0m',
@@ -124,6 +124,29 @@ function formatDecision(response: AnalyzeResponse): string {
     : '🟢 No blocking cost issues detected';
 }
 
+function formatCostAmplifiers(amplifiers: CostAmplifier[]): string[] {
+  if (!amplifiers || amplifiers.length === 0) return [];
+  
+  const lines: string[] = [];
+  lines.push('');
+  lines.push(colorize('Toxic Cost Amplifiers', COLORS.bold));
+  lines.push(colorize('These are not new findings. They explain how cost may multiply under scale or traffic.', COLORS.dim));
+  lines.push('');
+  
+  for (const amp of amplifiers.slice(0, 5)) {
+    const sevColor = amp.severity === 'CRITICAL' ? COLORS.red : COLORS.yellow;
+    lines.push(`• ${colorize(amp.title, sevColor, COLORS.bold)}`);
+    lines.push(colorize(`  ${amp.description}`, COLORS.dim));
+    if (amp.amplification?.factor_range) {
+      lines.push(colorize(`  Estimated amplification: ${amp.amplification.factor_range}`, COLORS.cyan));
+    }
+    lines.push(colorize(`  Confidence: ${amp.confidence}`, COLORS.dim));
+    lines.push('');
+  }
+  
+  return lines;
+}
+
 function formatNextActions(response: AnalyzeResponse): string[] {
   if (response.findings.length === 0) return [];
   
@@ -151,6 +174,9 @@ export function renderTable(response: AnalyzeResponse): string {
   lines.push(colorize('Status', COLORS.bold));
   lines.push(formatDecision(response));
   lines.push('');
+
+  const ampLines = formatCostAmplifiers(response.costAmplifiers || []);
+  lines.push(...ampLines);
   
   if (response.findings.length > 0) {
     lines.push(colorize('Findings', COLORS.bold));
@@ -235,6 +261,19 @@ export function renderPlain(response: AnalyzeResponse): string {
     lines.push('Status: PASS — No blocking cost issues');
   }
   lines.push('');
+
+  if (response.costAmplifiers && response.costAmplifiers.length > 0) {
+    lines.push('Toxic Cost Amplifiers:');
+    for (const amp of response.costAmplifiers.slice(0, 5)) {
+      lines.push(`  • ${amp.title}`);
+      lines.push(`    ${amp.description}`);
+      if (amp.amplification?.factor_range) {
+        lines.push(`    Estimated amplification: ${amp.amplification.factor_range}`);
+      }
+      lines.push(`    Confidence: ${amp.confidence}`);
+      lines.push('');
+    }
+  }
   
   if (response.findings.length > 0) {
     lines.push('Findings:');

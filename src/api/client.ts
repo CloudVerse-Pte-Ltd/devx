@@ -102,6 +102,18 @@ export interface Finding {
   rebuttalStatus?: RebuttalStatusInfo;
 }
 
+export interface CostAmplifier {
+  id: string;
+  title: string;
+  description: string;
+  severity: 'CRITICAL' | 'HIGH';
+  confidence: 'low' | 'medium' | 'high';
+  amplification?: {
+    factor_range?: string;
+  };
+  findingId: string;
+}
+
 export interface AnalyzeResponse {
   decision: 'pass' | 'warn' | 'block';
   analysisType: 'code' | 'iac' | 'mixed';
@@ -116,6 +128,7 @@ export interface AnalyzeResponse {
     explanation: string;
   };
   findings: Finding[];
+  costAmplifiers?: CostAmplifier[];
   policy: {
     blocked: boolean;
     blockReason: string | null;
@@ -352,6 +365,75 @@ export async function ping(): Promise<PingResponse> {
     }
     throw e;
   }
+}
+
+export async function describeContext(payload: any): Promise<any> {
+  if (!process.env.DEVX_TOKEN) {
+    await refreshTokenIfNeeded();
+  }
+  const token = getAccessToken();
+  if (!token) {
+    throw new ApiError('Not authenticated. Run: devx auth login', 401);
+  }
+  return request<any>('POST', '/api/cli/context/describe', payload, token);
+}
+
+export interface ResolveContextRequest {
+  orgId: string;
+  repo: {
+    provider: string;
+    owner: string;
+    name: string;
+    remoteUrl: string;
+  };
+  git: {
+    branch: string;
+    headSha: string;
+  };
+  evidence: {
+    rootFiles?: Array<{ path: string; content: string }>;
+    treePaths?: string[];
+  };
+  appId?: string;
+}
+
+export interface ContextProfile {
+  environment: 'prod' | 'staging' | 'dev' | 'unknown';
+  workloadType: 'api' | 'batch' | 'stream' | 'unknown';
+  trafficBand: 'low' | 'medium' | 'high' | 'unknown';
+  scaleBand: 'single' | 'scaled' | 'highly_scaled' | 'unknown';
+  signals?: {
+    trafficCount: number | null;
+    replicaCount: number | null;
+  };
+}
+
+export interface ResolveContextResponse {
+  profile: {
+    contextJson: ContextProfile;
+    contextHash: string;
+    confidence: 'LOW' | 'MEDIUM' | 'HIGH';
+    derivedAt: string;
+    expiresAt: string;
+    sources: Array<{ type: string; path?: string; confidence: string }>;
+  };
+  diff: {
+    changed: boolean;
+    changes: string[];
+    previousHash?: string;
+    currentHash?: string;
+  };
+}
+
+export async function resolveContext(payload: ResolveContextRequest): Promise<ResolveContextResponse> {
+  if (!process.env.DEVX_TOKEN) {
+    await refreshTokenIfNeeded();
+  }
+  const token = getAccessToken();
+  if (!token) {
+    throw new ApiError('Not authenticated. Run: devx auth login', 401);
+  }
+  return request<ResolveContextResponse>('POST', '/api/cli/context/resolve', payload, token);
 }
 
 export interface AcceptFindingRequest {
