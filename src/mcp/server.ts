@@ -37,6 +37,47 @@ interface McpToolResult {
   isError?: boolean;
 }
 
+const AIX_TOOLS: McpTool[] = [
+  {
+    name: 'aix_check_cost',
+    description: 'Check if a specific LLM model choice is cost-effective using AIX Brain. Returns recommendation, alternatives, and savings estimate.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        model_name: { type: 'string', description: 'The LLM model name to check (e.g., gpt-4o, claude-3-sonnet)' },
+        execution_class: { type: 'string', description: 'Execution class: chat, embedding, code_generation, image_generation' },
+      },
+      required: ['execution_class'],
+    },
+  },
+  {
+    name: 'aix_suggest_model',
+    description: 'Get the best model recommendation for a given execution class from AIX Brain.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        execution_class: { type: 'string', description: 'Execution class: chat, embedding, code_generation, image_generation' },
+        max_cost_per_1k_tokens: { type: 'number', description: 'Maximum cost per 1K tokens' },
+      },
+      required: ['execution_class'],
+    },
+  },
+  {
+    name: 'aix_report_outcome',
+    description: 'Report execution outcome to AIX Brain to improve future recommendations.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        decision_id: { type: 'string', description: 'Brain decision ID' },
+        latency_ms: { type: 'number', description: 'Actual latency in ms' },
+        cost_usd: { type: 'number', description: 'Actual cost in USD' },
+        success: { type: 'boolean', description: 'Whether execution was successful' },
+      },
+      required: ['decision_id', 'success'],
+    },
+  },
+];
+
 const TOOLS: McpTool[] = [
   {
     name: 'costlint_scan',
@@ -464,7 +505,7 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
         sendResponse({
           jsonrpc: '2.0',
           id,
-          result: { tools: TOOLS },
+          result: { tools: [...TOOLS, ...AIX_TOOLS] },
         });
         break;
 
@@ -514,6 +555,8 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
           result = await handleCostlintGetFindings(toolArgs);
         } else if (toolName === 'costlint_understand') {
           result = await handleCostlintUnderstand(toolArgs);
+        } else if (toolName === 'aix_check_cost' || toolName === 'aix_suggest_model' || toolName === 'aix_report_outcome') {
+          result = await handleAixTool(toolName, toolArgs);
         } else {
           result = {
             content: [{ type: 'text', text: `Unknown tool: ${toolName}` }],
@@ -546,6 +589,109 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
     }
   } catch (error) {
     sendError(id, -32603, `Internal error: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+async function handleAixTool(toolName: string, args: Record<string, unknown>): Promise<McpToolResult> {
+  const baseUrl = process.env.AIX_BASE_URL;
+  const apiKey = process.env.AIX_API_KEY;
+
+  if (!baseUrl || !apiKey) {
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          error: 'AIX Brain not configured',
+          hint: 'Set AIX_BASE_URL and AIX_API_KEY environment variables',
+        }, null, 2),
+      }],
+      isError: true,
+    };
+  }
+
+  try {
+    if (toolName === 'aix_check_cost' || toolName === 'aix_suggest_model') {
+      const executionClass = args.execution_class as string;
+      const modelName = args.model_name as string | undefined;
+      const maxCost = args.max_cost_per_1k_tokens as number | undefined;
+
+      const resp = await fetch(`${baseUrl}/v1/decide`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          intent: toolName === 'aix_check_cost'
+            ? `Check cost for ${modelName || executionClass}`
+            : `Best model for ${executionClass}`,
+          execution_class: executionClass,
+          model_name: modelName,
+          mode: modelName ? 'provider' : 'execution_class',
+          constraints: maxCost ? { max_cost_per_1k_tokens: maxCost } : undefined,
+        }),
+      });
+
+      if (!resp.ok) {
+        return { content: [{ type: 'text', text: `AIX Brain API error: HTTP ${resp.status}` }], isError: true };
+      }
+      const data = await resp.json() as Record<string, unknown>;
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            recommended: data.recommended,
+            pricing: data.pricing,
+            confidence: data.confidence,
+            alternatives: Array.isArray(data.alternatives) ? data.alternatives.slice(0, 5) : data.alternatives,
+            explanation: data.explanation,
+            decision_id: data.decision_id,
+          }, null, 2),
+        }],
+      };
+    }
+
+    if (toolName === 'aix_report_outcome') {
+      const resp = await fetch(`${baseUrl}/v1/feedback`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          decision_id: args.decision_id,
+          execution_class: 'unknown',
+          provider: 'unknown',
+          model_class: 'unknown',
+          metrics: {
+            latency_ms: args.latency_ms,
+            cost_usd: args.cost_usd,
+            success: args.success,
+          },
+        }),
+      });
+
+      if (!resp.ok) {
+        return { content: [{ type: 'text', text: `AIX Brain API error: HTTP ${resp.status}` }], isError: true };
+      }
+      const data = await resp.json() as Record<string, unknown>;
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            ok: data.ok,
+            message: 'Outcome reported successfully',
+          }, null, 2),
+        }],
+      };
+    }
+
+    return { content: [{ type: 'text', text: `Unknown AIX tool: ${toolName}` }], isError: true };
+  } catch (error: any) {
+    return {
+      content: [{ type: 'text', text: `AIX Brain error: ${error.message}` }],
+      isError: true,
+    };
   }
 }
 

@@ -10,6 +10,10 @@ import { createDoctorCommand } from './commands/doctor';
 import { createAcceptCommand } from './commands/accept';
 import { createRebuttalCommand } from './commands/rebuttal';
 import { createMcpCommand } from './commands/mcp';
+import { createCheckCommand } from './commands/check';
+import { createFeedbackCommand } from './commands/feedback';
+import { createSuggestCommand } from './commands/suggest';
+import { createStatusCommand } from './commands/status';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -42,5 +46,9 @@ program.addCommand(createDoctorCommand());
 program.addCommand(createAcceptCommand());
 program.addCommand(createRebuttalCommand());
 program.addCommand(createMcpCommand());
+program.addCommand(createCheckCommand());
+program.addCommand(createFeedbackCommand());
+program.addCommand(createSuggestCommand());
+program.addCommand(createStatusCommand());
 
 program.parse();
