@@ -480,7 +480,7 @@ export async function acceptFinding(params: AcceptFindingRequest): Promise<Accep
   }
 
   try {
-    return await request<AcceptFindingResponse>('POST', '/api/v1/devx/noise-control/intentional', {
+    return await request<AcceptFindingResponse>('POST', '/api/devx/noise-control/intentional', {
       fingerprint: params.fingerprint,
       reason: params.reason,
       scope: params.scope || 'line',
@@ -494,7 +494,7 @@ export async function acceptFinding(params: AcceptFindingRequest): Promise<Accep
       const refreshed = await tryRefreshAndRetry();
       if (refreshed) {
         const newConfig = getConfig();
-        return request<AcceptFindingResponse>('POST', '/api/v1/devx/noise-control/intentional', {
+        return request<AcceptFindingResponse>('POST', '/api/devx/noise-control/intentional', {
           fingerprint: params.fingerprint,
           reason: params.reason,
           scope: params.scope || 'line',
@@ -528,13 +528,13 @@ export async function listRebuttals(options?: { pending?: boolean; appId?: strin
   const queryString = params.toString() ? `?${params.toString()}` : '';
   
   try {
-    return await request<ListRebuttalsResponse>('GET', `/api/v1/devx/noise-control/intentional${queryString}`, undefined, config.accessToken);
+    return await request<ListRebuttalsResponse>('GET', `/api/devx/noise-control/intentional${queryString}`, undefined, config.accessToken);
   } catch (e) {
     if (e instanceof ApiError && e.statusCode === 401) {
       const refreshed = await tryRefreshAndRetry();
       if (refreshed) {
         const newConfig = getConfig();
-        return request<ListRebuttalsResponse>('GET', `/api/v1/devx/noise-control/intentional${queryString}`, undefined, newConfig.accessToken);
+        return request<ListRebuttalsResponse>('GET', `/api/devx/noise-control/intentional${queryString}`, undefined, newConfig.accessToken);
       }
     }
     throw e;
@@ -555,13 +555,13 @@ export async function approveRebuttal(id: string): Promise<ApproveRejectResponse
   }
 
   try {
-    return await request<ApproveRejectResponse>('POST', `/api/v1/devx/noise-control/intentional/${id}/approve`, {}, config.accessToken);
+    return await request<ApproveRejectResponse>('POST', `/api/devx/noise-control/intentional/${id}/approve`, {}, config.accessToken);
   } catch (e) {
     if (e instanceof ApiError && e.statusCode === 401) {
       const refreshed = await tryRefreshAndRetry();
       if (refreshed) {
         const newConfig = getConfig();
-        return request<ApproveRejectResponse>('POST', `/api/v1/devx/noise-control/intentional/${id}/approve`, {}, newConfig.accessToken);
+        return request<ApproveRejectResponse>('POST', `/api/devx/noise-control/intentional/${id}/approve`, {}, newConfig.accessToken);
       }
     }
     throw e;
@@ -577,13 +577,13 @@ export async function rejectRebuttal(id: string): Promise<ApproveRejectResponse>
   }
 
   try {
-    return await request<ApproveRejectResponse>('POST', `/api/v1/devx/noise-control/intentional/${id}/reject`, {}, config.accessToken);
+    return await request<ApproveRejectResponse>('POST', `/api/devx/noise-control/intentional/${id}/reject`, {}, config.accessToken);
   } catch (e) {
     if (e instanceof ApiError && e.statusCode === 401) {
       const refreshed = await tryRefreshAndRetry();
       if (refreshed) {
         const newConfig = getConfig();
-        return request<ApproveRejectResponse>('POST', `/api/v1/devx/noise-control/intentional/${id}/reject`, {}, newConfig.accessToken);
+        return request<ApproveRejectResponse>('POST', `/api/devx/noise-control/intentional/${id}/reject`, {}, newConfig.accessToken);
       }
     }
     throw e;
